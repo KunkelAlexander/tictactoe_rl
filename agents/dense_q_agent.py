@@ -9,9 +9,10 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from collections import deque
+import random 
 
 class DenseQAgent(agent.Agent): 
-    def __init__(self, agent_id, n_actions, n_states, learning_rate, discount, exploration, learning_rate_decay, exploration_decay, batch_size, deque_size): 
+    def __init__(self, agent_id, n_actions, n_states, learning_rate, discount, exploration, learning_rate_decay, exploration_decay, batch_size, replay_buffer_size): 
         """
         Initialize a Q-learning agent with a dense neural network
 
@@ -33,12 +34,12 @@ class DenseQAgent(agent.Agent):
         self.exploration_decay   = exploration_decay
         self.name                = f"deep-q agent {agent_id}"
         self.batch_size          = batch_size
-        self.memory              = deque(maxlen=deque_size)
-
+        self.replay_buffer       = deque(maxlen=replay_buffer_size)
+        self.input_shape         = len(self.state2input(self.n_states -1))
 
         # Define the Q-Network
         self.model = keras.Sequential([
-            keras.layers.Dense(24, activation='relu', input_shape=(len(self.state2input(self.n_states -1)),)),
+            keras.layers.Dense(24, activation='relu', input_shape=(self.input_shape,)),
             keras.layers.Dense(24, activation='relu'),
             keras.layers.Dense(n_actions, activation='linear')
         ])
@@ -64,7 +65,7 @@ class DenseQAgent(agent.Agent):
         # exploit
         else:
             s = self.state2input(state).reshape(1, -1)
-            return np.argmax(self.model(s, training=False)) 
+            return np.argmax(self.model.predict(s, verbose=0)) 
     
     def update(self, state, action, next_state, reward, done):
         """
@@ -75,7 +76,7 @@ class DenseQAgent(agent.Agent):
         :param next_state: The next state.
         :param reward:     The observed reward.
         """
-        super().update(state, action, next_state, reward)
+        super().update(state, action, next_state, reward, done)
 
         if not self.is_training:
             return 
@@ -86,30 +87,37 @@ class DenseQAgent(agent.Agent):
         if action < 0 or action >= self.n_actions:
             raise ValueError(f"Invalid action value: action = {action} and n_actions = {self.n_actions}")
 
-        # Store the experience in the replay memory
-        self.memory.append((state, action, reward, next_state, done))
+        # Store the experience in the replay replay_buffer
+        self.replay_buffer.append((self.state2input(state).reshape(1, -1), action, reward, self.state2input(next_state).reshape(1, -1), done))
 
-        # Sample a random minibatch from the replay memory
-        if len(self.memory) >= self.batch_size:
-            minibatch = np.random.sample(self.memory, self.batch_size)
+        # Sample a random minibatch from the replay replay_buffer
+        if len(self.replay_buffer) >= self.batch_size:
 
-            states, targets = [], []
-            for s, a, r, s_, d in minibatch:
-                target = self.model.predict(self.state2input(s))
-                if d:
-                    # If it's a terminal state, set the target to the immediate reward
-                    target[0][a] = r  
-                else:
-                    # Update the target using the Bellman equation
-                    # Note that Bellman equation here takes slightly different shape than for tabular_q_agent
-                    # In tabular Q-learning, we compute delta Q and add it to Q(s). We therefore have an extra term where we subtract by lr * Q(s). 
-                    # In Deep-Q-learning, the network represents Q(s). We compute the predicted Q-value given s and train the network using a loss function.
-                    target[0][a] = r + self.discount * np.max(self.model.predict(self.state2input(s_), axis=1))
+            mini_batch = random.sample(self.replay_buffer, self.batch_size)
+            
+            states       = np.zeros((self.batch_size, self.input_shape), dtype=float)
+            next_states  = np.zeros((self.batch_size, self.input_shape), dtype=float)
+            actions      = np.zeros(self.batch_size, dtype=int)
+            rewards      = np.zeros(self.batch_size, dtype=float)
+            not_terminal = np.zeros(self.batch_size, dtype=bool)
+ 
+            for i, (s, a, r, s_, d) in enumerate(mini_batch):
+                states[i, :]      = s
+                actions[i]        = a 
+                rewards[i]        = r
+                next_states[i, :] = s_
+                not_terminal[i]   = 1 - d 
 
-                states.append(s[0])
-                targets.append(target[0])
+            # Update the target using the Bellman equation
+            # If it's a terminal state, set the target to the immediate reward
+            # Note that Bellman equation here takes slightly different shape than for tabular_q_agent
+            # In tabular Q-learning, we compute delta Q and add it to Q(s). We therefore have an extra term where we subtract by lr * Q(s). 
+            # In Deep-Q-learning, the network represents Q(s). We compute the predicted Q-value given s and train the network using a loss function.
+            targets              = self.model.predict_on_batch(states)
 
-            self.model.fit(np.array(states), np.array(targets), epochs=1, verbose=0)
+            targets[:, actions]  = rewards + not_terminal * self.discount * np.amax(self.model.predict_on_batch(next_states), axis=1)
+
+            self.model.fit(states, targets, epochs=1, verbose=0)
 
         # Decrease learning and exploration rates
         self.exploration   *= self.exploration_decay

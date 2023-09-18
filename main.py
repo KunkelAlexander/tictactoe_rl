@@ -77,7 +77,7 @@ class TrainingManager:
             elif agent_type == "TABULAR_Q_AGENT": 
                 agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration,learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay))
             elif agent_type == "DENSE_Q_AGENT": 
-                agents.append(DenseQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration,learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=64, deque_size=10000))
+                agents.append(DenseQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration,learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=64, replay_buffer_size=10000))
             else: 
                 raise ValueError(F"Unknown agent type: {agent_type}")
 
@@ -86,8 +86,8 @@ class TrainingManager:
         cum_rewards   = np.zeros((len(agents), n_episode))
 
         for episode in tqdm(range(n_episode)):
-            game_manager     = GameManager(game = self.game, agents = agents, gui=self.gui)
-            agent_id, events = game_manager.run_game(do_training=True, randomise_order=randomise_order) 
+            game_manager     = GameManager(game = self.game, agents = agents, gui = self.gui)
+            agent_id, events = game_manager.run_game(do_training=True, randomise_order = randomise_order) 
 
             draws[episode] = "DRAW" in events
 
@@ -166,7 +166,7 @@ training_manager.run_training(
                             window_size         = args.window_size, 
                             learning_rate_decay = 1 - 1e-5, 
                             exploration_decay   = 1 - 1e-2,
-                            exploration         = 0.05,
+                            exploration         = 0.5,
                             learning_rate       = 0.1,
                             )
 

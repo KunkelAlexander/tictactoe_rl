@@ -55,7 +55,7 @@ class TabularQAgent(agent.Agent):
         :param next_state: The next state.
         :param reward:     The observed reward.
         """
-        super().update(state, action, next_state, reward)
+        super().update(state, action, next_state, reward, done)
 
         if not self.is_training:
             return 
