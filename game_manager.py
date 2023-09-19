@@ -45,6 +45,8 @@ class GameManager:
         # Randomise starting order in every game
         if randomise_order:
             agent_order = np.random.permutation(self.agents)
+        else:
+            agent_order = self.agents
 
         while True:
             for agent in agent_order:
@@ -75,7 +77,7 @@ class GameManager:
             float: The total reward calculated from the events.
         """
         rewards = {
-            "INVALID_MOVE": -1.0,
+            "INVALID_MOVE": -0.1,
             "DRAW":          0.5,
             "VICTORY":       1.0
         }

@@ -50,17 +50,31 @@ class TrainingManager:
         """
         Args:
             game (object): The game object representing the game state.
-            agents (list): A list of agent objects participating in the training.
-            board_size (int, optional): Size of the game board. Default is 3.
-            n_episodes (int, optional): Number of training episodes. Default is 50000.
             gui (function, optional): A function for displaying the game state visually.
+            agents (list): A list of agent classes participating in the training.
         """
 
         self.game        = game 
         self.gui         = gui 
         self.agent_types = agent_types
 
-    def run_training(self, board_size, n_episode, window_size, learning_rate_decay, exploration_decay, randomise_order = True, discount = 0.9, learning_rate = 0.1, exploration = 0.95): 
+    def evaluate(self, outputs, agents, n_episode): 
+
+        draws              = np.zeros(n_episode)
+        did_agent_win      = np.zeros((len(agents), n_episode))
+        cum_rewards        = np.zeros((len(agents), n_episode))
+        
+        for episode, (agent_id, events) in enumerate(outputs):
+
+            draws[episode] = "DRAW" in events
+
+            for i, agent in enumerate(agents): 
+                did_agent_win[i, episode] = ("VICTORY" in events) and (agent_id == agent.agent_id)
+                cum_rewards  [i, episode] = agent.cumulative_reward
+
+        return draws, did_agent_win, cum_rewards
+   
+    def run_training(self, board_size, n_episode, n_eval, eval_freq, window_size, learning_rate_decay, exploration_decay, randomise_order = True, discount = 0.9, learning_rate = 0.1, exploration = 0.95): 
         """
         Run training episodes of a game with multiple agents and collect statistics.
 
@@ -81,19 +95,25 @@ class TrainingManager:
             else: 
                 raise ValueError(F"Unknown agent type: {agent_type}")
 
-        draws         = np.zeros(n_episode)
-        did_agent_win = np.zeros((len(agents), n_episode))
-        cum_rewards   = np.zeros((len(agents), n_episode))
+        outputs = []
 
         for episode in tqdm(range(n_episode)):
-            game_manager     = GameManager(game = self.game, agents = agents, gui = self.gui)
-            agent_id, events = game_manager.run_game(do_training=True, randomise_order = randomise_order) 
+            game_manager = GameManager(game = self.game, agents = agents, gui = self.gui)
+            output       = game_manager.run_game(do_training=True, randomise_order = randomise_order) 
+            outputs.append(output) 
 
-            draws[episode] = "DRAW" in events
+            if episode % eval_freq == 0: 
+                eval_outputs = []
+                for evaluation_episode in range(n_eval):
+                    game_manager = GameManager(game = self.game, agents = agents, gui = self.gui)
+                    output       = game_manager.run_game(do_training=False, randomise_order = randomise_order) 
+                    eval_outputs.append(output) 
 
-            for i, agent in enumerate(agents): 
-                did_agent_win[i, episode] = ("VICTORY" in events) and (agent_id == agent.agent_id)
-                cum_rewards  [i, episode] = agent.cumulative_reward
+                draws, did_agent_win, cum_rewards = self.evaluate(eval_outputs, agents, n_eval)
+                print(f"Episode {episode}: {np.sum(draws, dtype=int)} draws", end = "") 
+                for i, agent in enumerate(agents): 
+                    print(f" {np.sum(did_agent_win[i, :], dtype=int)} {agent.name} wins, ", end=" ")
+                print("")
 
 
         mydir = os.path.join(
@@ -118,9 +138,10 @@ class TrainingManager:
             print(f'exploration_decay   = {exploration_decay}',   file=f)
             print(f'randmomise_order    = {randomise_order}',     file=f)
 
+        draws, did_agent_win, cum_rewards = self.evaluate(outputs, agents, n_episode) 
         np.savetxt(mydir + "/draws.txt", draws)
         for i, agent in enumerate(agents): 
-            np.savetxt(mydir + "/did_agent_win.txt", did_agent_win[i])
+            np.savetxt(mydir + f"/did_agent_{agent.agent_id}_win.txt", did_agent_win[i])
             np.savetxt(mydir + "/cum_reward.txt",    cum_rewards[i])
         
         moving_avg = lambda data, window_size: np.convolve(data, np.ones(window_size), mode='valid') / window_size
@@ -163,11 +184,15 @@ training_manager = TrainingManager( game = TicTacToe(board_size  = args.board_si
 training_manager.run_training(
                             board_size          = args.board_size, 
                             n_episode           = args.n_episode, 
+                            n_eval              = 100,
+                            eval_freq           = 10,
                             window_size         = args.window_size, 
-                            learning_rate_decay = 1 - 1e-5, 
-                            exploration_decay   = 1 - 1e-2,
-                            exploration         = 0.5,
-                            learning_rate       = 0.1,
+                            discount            = 0.95,
+                            learning_rate_decay = 1, 
+                            exploration_decay   = 1 - 1e-3,
+                            exploration         = 0.1,
+                            learning_rate       = 1e-2,
+                            randomise_order     = False,
                             )
 
 

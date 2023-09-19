@@ -27,7 +27,7 @@ class TicTacToe:
         """
         # Convert from base-(1 + self.agent_count) number to decimal number
         base = 1 + self.agent_count
-        return np.sum(self.board.flatten() * (base ** np.arange(self.board.size)))
+        return np.sum(self.board.flatten() * (base ** np.arange(self.board.size)), dtype=int)
 
     def make_move(self, agent_id, action):
         """
