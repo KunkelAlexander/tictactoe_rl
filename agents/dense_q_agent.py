@@ -12,6 +12,7 @@ from collections import deque
 import random 
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint  # Import ModelCheckpoint callback
 import os 
+from util import decimal_to_base
 
 # Define a directory to save checkpoints and logs
 checkpoint_dir = 'checkpoints'
@@ -86,30 +87,31 @@ class DenseQAgent(agent.Agent):
         # Training episode
         self.episode = 0
 
+    def update(self, state, action, next_state, reward, done):
+        """
+        Update the Q-values based on the Q-learning update rule.
 
-    def decimal_to_base(self, decimal_num, base = 3, padding = 9):    
-        base_num = ""
-        
-        if decimal_num == 0:
-            # Special case for 0 in base
-            base_num = "0"
-        else: 
-            while decimal_num > 0:
-                remainder = decimal_num % base
-                base_num  = str(remainder) + base_num
-                decimal_num //= base
+        :param state:      The current state.
+        :param action:     The selected action.
+        :param next_state: The next state.
+        :param reward:     The observed reward.
+        """
+        super().update(state, action, next_state, reward, done)
+        if self.is_training: 
+            # Store the experience in the replay replay_buffer
+            self.replay_buffer.append((self.state2input(state).reshape(1, -1), action, reward, self.state2input(next_state).reshape(1, -1), done))
 
-        base_string = base_num.zfill(padding)[::-1]
-        base_array  = np.array([int(digit) for digit in base_string])
-
-        return base_array
-
+    def correct_final_update(self, final_reward):
+        super().correct_final_update(final_reward)
+        if self.is_training: 
+            self.training_data[-1][3] = final_reward
+            self.training_data[-1][4] = True 
     
     def state2input(self, state): 
 
         if self.input_mode == self.MODE_TUTORIAL: 
             n = 9 
-            base_array = self.decimal_to_base(state, base = 3, padding = n) 
+            base_array = decimal_to_base(state, base = 3, padding = n) 
             representation = np.zeros(3 * n) 
             for i, b in enumerate(base_array):
                 if b == 0:
@@ -138,11 +140,9 @@ class DenseQAgent(agent.Agent):
         # exploit
         else:
             s = self.state2input(state).reshape(1, -1)
-            #prediction = self.model(s, training=False)
-            #print("State: ", s, "Prediction: ", prediction)
             return np.argmax(self.model(s, training=False)) 
     
-    def update(self, state, action, next_state, reward, done):
+    def train(self):
         """
         Update the Q-values based on the Q-learning update rule.
 
@@ -151,23 +151,13 @@ class DenseQAgent(agent.Agent):
         :param next_state: The next state.
         :param reward:     The observed reward.
         """
-        super().update(state, action, next_state, reward, done)
 
         if not self.is_training:
             return 
         
-        # Validate state and action
-        if state < 0 or state >= self.n_states:
-            raise ValueError(f"Invalid state value: state = {state} and n_states = {self.n_states}")
-        if action < 0 or action >= self.n_actions:
-            raise ValueError(f"Invalid action value: action = {action} and n_actions = {self.n_actions}")
-
-        # Store the experience in the replay replay_buffer
-        self.replay_buffer.append((self.state2input(state).reshape(1, -1), action, reward, self.state2input(next_state).reshape(1, -1), done))
 
         # Sample a random minibatch from the replay replay_buffer
         if len(self.replay_buffer) >= self.batch_size:
-            #print("Hi")
 
             mini_batch = random.sample(self.replay_buffer, self.batch_size)
             

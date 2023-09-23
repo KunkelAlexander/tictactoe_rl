@@ -1,4 +1,10 @@
 class Agent:
+    ITERATION = 0 
+    STATE     = 1 
+    ACTION    = 2
+    REWARD    = 3 
+    DONE      = 4 
+
     def __init__(self, agent_id, n_actions): 
         """
         Initialize an agent.
@@ -10,7 +16,7 @@ class Agent:
         self.n_actions          = n_actions
         self.is_training        = False 
         self.name               = f"agent {agent_id}"
-        self.cumulative_reward  = 0
+        self.cumulative_reward  = 0 
 
     def start_game(self, do_training):
         """
@@ -21,7 +27,7 @@ class Agent:
         self.is_training       = do_training
         self.cumulative_reward = 0 
 
-    def act(self, state):
+    def act(self, state, actions):
         """
         Select an action based on the current state.
 
@@ -30,13 +36,35 @@ class Agent:
         """
         raise NotImplementedError()
     
-    def update(self, state, action, next_state, reward, done):
+    def update(self, iteration, state, action, reward, done):
         """
-        Update the agent's Q-values based on the observed transition.
+        Update the agent's training data based on the observed transition.
 
+        :param iteration:  The current iteration number. 
         :param state:      The current state.
         :param action:     The selected action.
         :param next_state: The next state.
         :param reward:     The observed reward.
         """
-        self.cumulative_reward += reward
+        self.cumulative_reward += reward 
+        pass
+
+
+    def final_update(self, reward):
+        """
+        Update the agent's training data based on the observed transition.
+
+        :param iteration:  The current iteration number. 
+        :param state:      The current state.
+        :param action:     The selected action.
+        :param next_state: The next state.
+        :param reward:     The observed reward.
+        """
+        self.cumulative_reward += reward 
+        pass
+
+    def train(self):
+        """
+        Update the agent's Q-values based on the training data.
+        """
+        pass

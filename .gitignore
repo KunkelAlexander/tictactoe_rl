@@ -1,3 +1,9 @@
-__pycache__/agent.cpython-310.pyc
-__pycache__/game_manager.cpython-310.pyc
-__pycache__/tictactoe.cpython-310.pyc
+__pycache__/
+checkpoints/
+logs/
+runs/
+agents/__pycache__/
+agents/__pycache__/dense_q_agent.cpython-310.pyc
+agents/__pycache__/random_agent.cpython-310.pyc
+agents/__pycache__/tabular_q_agent.cpython-310.pyc
+out.txt

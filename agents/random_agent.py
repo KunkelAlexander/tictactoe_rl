@@ -17,11 +17,12 @@ class RandomAgent(agent.Agent):
         super().__init__(agent_id, n_actions) 
         self.name      = f"random agent {agent_id}"
 
-    def act(self, state): 
+    def act(self, state, actions): 
         """
         Select a random action.
 
-        :param state: The current state (not used).
+        :param state:   The current state (not used).
+        :param actions: List of possible actions. 
         :return: A randomly selected action.
         """
-        return np.random.randint(self.n_actions)
+        return np.random.choice(actions)

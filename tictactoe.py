@@ -1,4 +1,5 @@
 import numpy as np 
+from util import decimal_to_base
 
 class TicTacToe:
     FIELD_EMPTY = 0
@@ -13,6 +14,11 @@ class TicTacToe:
         self.board_size  = board_size
         self.agent_count = agent_count
 
+    def copy(self):
+        c = TicTacToe(board_size=self.board_size, agent_count=self.agent_count) 
+        c.board = self.board.copy() 
+        return c 
+    
     def start_game(self): 
         """
         Initialize the TicTacToe board
@@ -28,6 +34,14 @@ class TicTacToe:
         # Convert from base-(1 + self.agent_count) number to decimal number
         base = 1 + self.agent_count
         return np.sum(self.board.flatten() * (base ** np.arange(self.board.size)), dtype=int)
+    
+
+    def set_state(self, state):
+        """
+        Set the current state of the game board via unique integer representation.
+        :param state: Integer representation of board
+        """
+        self.board = decimal_to_base(state, base = 1 + self.agent_count, padding = self.board_size**2).reshape(self.board_size, self.board_size)
 
     def make_move(self, agent_id, action):
         """
@@ -37,39 +51,54 @@ class TicTacToe:
         :param action: The action representing the move.
         :return: A list of events that happened during the move (e.g., "INVALID_MOVE", "VICTORY").
         """
-
-        # Validate agent id
-        if agent_id <= self.FIELD_EMPTY or agent_id > self.agent_count:
-            raise ValueError(f"Invalid agent id")
-        
-        # Convert 1D action to 2D index on board                              
-        x, y = action % self.board_size, action // self.board_size
-
         events = []
 
-        if self.is_field_free(x, y):
-            self.board[y, x] = agent_id
+        legal_actions = self.get_actions(only_legal_actions=True)
+
+        if action in legal_actions:
+            self.board[action // self.board_size, action % self.board_size] = agent_id
         else:
             events.append("INVALID_MOVE")
-            return events
-
-        if self.did_agent_win(agent_id):
-            events.append("VICTORY")
-            return events 
-
-        if self.is_tic_tac_toe_full():
-            events.append("DRAW")
-            return events
         
         return events
+    
+    def evaluate_game_state(self,agent_id):
 
-    def did_agent_win(self, agent_id):
+        for id in range(1, self.agent_count + 1):
+            if self.did_agent_win(id):
+                if agent_id == id:
+                    return "VICTORY"
+                else:
+                    return "DEFEAT"
+
+        if self.is_tic_tac_toe_full():
+            return "DRAW"
+
+        return "ONGOING"
+    
+    def get_actions(self, only_legal_actions): 
+        """
+        Check which actions on board are available
+
+        :param only_legal_actions: Only return moves for free fields if set to True. 
+        :return: Numpy array with indices of actions moves in [0, self.board_size]
+        """
+        if only_legal_actions:
+            actions = np.argwhere(self.board.flatten() == self.FIELD_EMPTY).flatten()
+        else: 
+            actions = np.arange(self.board_size**2)
+        return actions 
+
+    def did_agent_win(self, agent_id, board=None):
         """
         Check if a player (agent) with the given ID has won the game.
 
         :param agent_id: The ID of the player to check.
         :return: True if the player has won, False otherwise.
         """
+        
+        if board is None: 
+            board = self.board
 
         # Validate agent id
         if agent_id <= self.FIELD_EMPTY or agent_id > self.agent_count:
@@ -77,11 +106,11 @@ class TicTacToe:
         
         # Check rows and columns for a win
         for i in range(self.board_size):
-            if np.all(self.board[i, :] == agent_id) or np.all(self.board[:, i] == agent_id):
+            if np.all(board[i, :] == agent_id) or np.all(board[:, i] == agent_id):
                 return True
 
         # Check diagonals for a win
-        if np.all(np.diag(self.board) == agent_id) or np.all(np.diag(np.fliplr(self.board)) == agent_id):
+        if np.all(np.diag(board) == agent_id) or np.all(np.diag(np.fliplr(board)) == agent_id):
             return True
 
         return False
@@ -93,19 +122,3 @@ class TicTacToe:
         :return: True if the board is full, False otherwise.
         """
         return np.all(self.board != self.FIELD_EMPTY)
-
-    def is_field_free(self, x, y):
-        """
-        Check if a specific field on the board is free.
-
-        :param x: The x-coordinate of the field.
-        :param y: The y-coordinate of the field.
-        :return: True if the field is free, False otherwise.
-        """
-        ny, nx = self.board.shape
-
-        if x < 0 or x >= nx or y < 0 or y >= ny:
-            raise ValueError("Invalid position on board")
-        
-        return self.board[y, x] == self.FIELD_EMPTY
-    
