@@ -20,7 +20,7 @@ class GameManager:
         is_game_over(events): Check if the game is over based on events.
     """
 
-    MAX_ITERATIONS = 1e5
+    MAX_ITERATIONS = int(1e5)
 
     
     def __init__(self, game, agents, gui=None):
@@ -54,25 +54,25 @@ class GameManager:
             agent_order = self.agents
 
         done            = False 
-        winner          = 0 
-        iteration       = 0 
 
-        while iteration < self.MAX_ITERATIONS and not done: 
+        for iteration in range(self.MAX_ITERATIONS): 
             for agent in agent_order:
-                state        = self.game.get_state()
-                action       = agent.act(state, self.game.get_actions(only_legal_actions=only_legal_actions))
-                events       = self.game.make_move(agent.agent_id, action)
-                game_events  = [self.game.evaluate_game_state(agent.agent_id)]
-                reward       = self.events_to_reward(events)
-                done         = self.is_game_over(game_events)
-                agent.update(iteration, state, action, reward, done)
+                state         = self.game.get_state()
+                legal_actions = self.game.get_actions(only_legal_actions=only_legal_actions)
+                action        = agent.act(state, legal_actions)
+                events        = self.game.make_move(agent.agent_id, action)
+                game_events   = [self.game.evaluate_game_state(agent.agent_id)]
+                reward        = self.events_to_reward(events)
+                done          = self.is_game_over(game_events)
+                agent.update(iteration, state, legal_actions, action, reward, done)
                 if self.gui is not None:
                     self.gui(self.game, agent.agent_id, events, done)
 
                 if done: 
                     break
-            iteration += 1
-
+            if done: 
+                break
+            
         for agent in agent_order:
             game_events  = [self.game.evaluate_game_state(agent.agent_id)]
             reward       = self.events_to_reward(game_events)
@@ -93,11 +93,11 @@ class GameManager:
             float: The total reward calculated from the events.
         """
         rewards = {
-            "INVALID_MOVE": -0.5,
+            "INVALID_MOVE": -0.1,
             "ONGOING":       0.0,
             "DRAW":          0.5,
             "VICTORY":       1.0,
-            "DEFEAT":          0.0
+            "DEFEAT":        0.0
         }
         return np.sum([rewards[event] for event in events])
 

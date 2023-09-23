@@ -71,7 +71,10 @@ class TrainingManager:
         learning_rate_decay = config["learning_rate_decay"]
         exploration_decay   = config["exploration_decay"]
         exploration         = config["exploration"]   
+        batch_size          = config["batch_size"]
+        replay_buffer_size  = config["replay_buffer_size"]
         learning_rate       = config["learning_rate"] 
+        target_update_freq  = config["target_update_freq"]
         randomise_order     = config["randomise_order"]
         only_legal_actions  = config["only_legal_actions"]
         debug               = config["debug"]
@@ -84,9 +87,12 @@ class TrainingManager:
             elif agent_type == "TABULAR_Q_AGENT": 
                 from agents.tabular_q_agent import TabularQAgent
                 agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay))
-            elif agent_type == "DENSE_Q_AGENT": 
-                from agents.dense_q_agent import DenseQAgent
-                agents.append(DenseQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=64, replay_buffer_size=10000))
+            elif agent_type == "DEEP_Q_AGENT": 
+                from agents.deep_q_agent import DeepQAgent
+                agents.append(DeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=batch_size, replay_buffer_size=replay_buffer_size, n_eval=n_eval))
+            elif agent_type == "DUELLING_DEEP_Q_AGENT": 
+                from agents.duelling_deep_q_agent import DuellingDeepQAgent
+                agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=batch_size, replay_buffer_size=replay_buffer_size, n_eval=n_eval, target_update_freq=target_update_freq))
             elif agent_type == "MINMAX_AGENT": 
                 from agents.minmax_agent import MinMaxAgent
                 agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=False))            

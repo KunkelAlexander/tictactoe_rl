@@ -1,9 +1,10 @@
 class Agent:
-    ITERATION = 0 
-    STATE     = 1 
-    ACTION    = 2
-    REWARD    = 3 
-    DONE      = 4 
+    ITERATION       = 0 
+    STATE           = 1 
+    LEGAL_ACTIONS   = 2
+    ACTION          = 3
+    REWARD          = 4
+    DONE            = 5
 
     def __init__(self, agent_id, n_actions): 
         """
@@ -36,15 +37,16 @@ class Agent:
         """
         raise NotImplementedError()
     
-    def update(self, iteration, state, action, reward, done):
+    def update(self, iteration, state, legal_actions, action, reward, done):
         """
         Update the agent's training data based on the observed transition.
 
-        :param iteration:  The current iteration number. 
-        :param state:      The current state.
-        :param action:     The selected action.
-        :param next_state: The next state.
-        :param reward:     The observed reward.
+        :param iteration:      The current iteration number. 
+        :param state:          The current state.
+        :param legal_actions:  List of legal actions. 
+        :param action:         The selected action.
+        :param next_state:     The next state.
+        :param reward:         The observed reward.
         """
         self.cumulative_reward += reward 
         pass

@@ -64,18 +64,19 @@ class TabularQAgent(agent.Agent):
             print(f"Pick action {action} in state {state} with q-values {self.q[state]}")
         return action 
     
-    def update(self, iteration, state, action, reward, done):
+    def update(self, iteration, state, legal_actions, action, reward, done):
         """
         Update the Q-values based on the Q-learning update rule.
 
-        :param state:      The current state.
-        :param action:     The selected action.
-        :param next_state: The next state.
-        :param reward:     The observed reward.
+        :param state:         The current state.
+        :param legal_actions: List of legal actions. 
+        :param action:        The selected action.
+        :param next_state:    The next state.
+        :param reward:        The observed reward.
         """
-        super().update(iteration, state, action, reward, done)
+        super().update(iteration, state, legal_actions, action, reward, done)
         if self.is_training: 
-            self.training_data.append([iteration, state, action, reward, done])
+            self.training_data.append([iteration, state, legal_actions, action, reward, done])
     
 
     def final_update(self, reward):
@@ -114,7 +115,7 @@ class TabularQAgent(agent.Agent):
                 raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
             
 
-        for iteration, state, action, reward, done in reversed(self.training_data):
+        for iteration, state, legal_actions, action, reward, done in reversed(self.training_data):
             if self.debug: 
                 print(f"Iter {iteration}: q-value in state {state} before update: {self.q[state]} with reward {reward} and Game Over = {done}")
             

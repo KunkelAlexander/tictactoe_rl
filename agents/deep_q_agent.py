@@ -24,11 +24,11 @@ os.makedirs(log_dir, exist_ok=True)
 
 # View logs via tensorboard --logdir=./logs
 
-class DenseQAgent(agent.Agent): 
+class DeepQAgent(agent.Agent): 
     MODE_BINARY   = 0 
     MODE_TUTORIAL = 1
 
-    def __init__(self, agent_id, n_actions, n_states, learning_rate, discount, exploration, learning_rate_decay, exploration_decay, batch_size, replay_buffer_size): 
+    def __init__(self, agent_id, n_actions, n_states, learning_rate, discount, exploration, learning_rate_decay, exploration_decay, batch_size, replay_buffer_size, n_eval): 
         """
         Initialize a Q-learning agent with a dense neural network
 
@@ -53,7 +53,7 @@ class DenseQAgent(agent.Agent):
         self.replay_buffer       = deque(maxlen=replay_buffer_size)
         self.input_mode          = self.MODE_TUTORIAL
         if self.input_mode == self.MODE_BINARY:
-            self.input_shape    = len(self.state2input(self.n_states -1))
+            self.input_shape    = len(self.state_to_input(self.n_states -1))
         elif self.input_mode == self.MODE_TUTORIAL:
             self.input_shape     = 3 * n_actions 
         else: 
@@ -61,7 +61,7 @@ class DenseQAgent(agent.Agent):
         
         # Define the Q-Network
         self.model = keras.Sequential([
-            keras.layers.Dense(512, activation='relu', input_shape=(self.input_shape,)),
+            keras.layers.Dense(256, activation='relu', input_shape=(self.input_shape,)),
             keras.layers.Dense(n_actions, activation='linear')
         ])
 
@@ -86,8 +86,12 @@ class DenseQAgent(agent.Agent):
 
         # Training episode
         self.episode = 0
+        self.debug   = False
+        self.training_buffer = []
+        self.n_eval = n_eval 
 
-    def update(self, state, action, next_state, reward, done):
+
+    def update(self, iteration, state, legal_actions, action, reward, done):
         """
         Update the Q-values based on the Q-learning update rule.
 
@@ -96,18 +100,26 @@ class DenseQAgent(agent.Agent):
         :param next_state: The next state.
         :param reward:     The observed reward.
         """
-        super().update(state, action, next_state, reward, done)
+        super().update(iteration, state, legal_actions, action, reward, done)
         if self.is_training: 
-            # Store the experience in the replay replay_buffer
-            self.replay_buffer.append((self.state2input(state).reshape(1, -1), action, reward, self.state2input(next_state).reshape(1, -1), done))
-
-    def correct_final_update(self, final_reward):
-        super().correct_final_update(final_reward)
-        if self.is_training: 
-            self.training_data[-1][3] = final_reward
-            self.training_data[-1][4] = True 
+            self.training_data.append([iteration, state, legal_actions, action, reward, done])
     
-    def state2input(self, state): 
+
+    def final_update(self, reward):
+        """
+        Update the Q-values based on the Q-learning update rule.
+
+        :param state:      The current state.
+        :param action:     The selected action.
+        :param next_state: The next state.
+        :param reward:     The observed reward.
+        """
+        super().final_update(reward)
+        if self.is_training: 
+            self.training_data[-1][self.DONE]    = True
+            self.training_data[-1][self.REWARD] += reward
+            
+    def state_to_input(self, state): 
 
         if self.input_mode == self.MODE_TUTORIAL: 
             n = 9 
@@ -121,26 +133,38 @@ class DenseQAgent(agent.Agent):
                 elif b == 2: 
                     representation[i + 2 * n] = 1
         elif self.input_mode == self.MODE_BINARY:
-            representation = self.decimal_to_base(state, base = 2, padding = 15) 
+            representation = decimal_to_base(state, base = 2, padding = 15) 
         else:
             raise ValueError("Unsupported input mode")
 
         return representation
 
-    def act(self, state): 
+    def act(self, state, actions): 
         """
         Select an action using an epsilon-greedy policy.
 
         :param state: The current state.
         :return:      The selected action.
         """
+
         # explore
         if np.random.uniform(0, 1) < self.exploration and self.is_training:
-            return np.random.randint(self.n_actions)  
+            action = np.random.choice(actions)
         # exploit
         else:
-            s = self.state2input(state).reshape(1, -1)
-            return np.argmax(self.model(s, training=False)) 
+            # disable q-values of illegal actions
+            illegal_actions    = np.setdiff1d(np.arange(self.n_actions), actions) 
+            #best_actions      = np.argwhere(self.q[state] == np.max(self.q[state]))
+            #action            = np.random.choice(best_actions.flatten())
+            s                  = self.state_to_input(state).reshape(1, -1)
+            q                  = self.model(s, training=False).numpy().flatten()
+            #q[illegal_actions] = -np.inf
+            action = np.argmax(q) 
+    
+            if self.debug:
+                print(f"Pick action {action} in state {state} with q-values {q[action], q}")
+
+        return action 
     
     def train(self):
         """
@@ -154,7 +178,28 @@ class DenseQAgent(agent.Agent):
 
         if not self.is_training:
             return 
+
+        # Check integrity of training data 
+        if self.training_data[-1][self.DONE] is not True: 
+            raise ValueError("Last training datum not done")
         
+        # Validate iteration number
+        for i in range(len(self.training_data) - 1): 
+            i1 = self.training_data[i  ][self.ITERATION]
+            i2 = self.training_data[i+1][self.ITERATION]
+            if (i1 + 1 != i2):
+                raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
+            
+        # Connect state with next state and move to replay buffer
+        for i in range(len(self.training_data)): 
+            iteration, state, legal_actions, action, reward, done = self.training_data[i]
+            if not done: 
+                next_state = self.training_data[i+1][self.STATE]
+            else: 
+                next_state = 0
+            self.replay_buffer.append([state, action, next_state, reward, done])
+
+        self.is_training = []
 
         # Sample a random minibatch from the replay replay_buffer
         if len(self.replay_buffer) >= self.batch_size:
@@ -167,12 +212,13 @@ class DenseQAgent(agent.Agent):
             rewards      = np.zeros(len(mini_batch), dtype=float)
             not_terminal = np.zeros(len(mini_batch), dtype=int)
  
-            for i, (s, a, r, s_, d) in enumerate(mini_batch):
-                states[i, :]      = s
-                actions[i]        = a 
-                rewards[i]        = r
-                next_states[i, :] = s_
-                not_terminal[i]   = 1 - d
+            for i, (s, a, s_, r, d) in enumerate(mini_batch):
+                states      [i, :] = self.state_to_input(s).reshape(1, -1)
+                actions     [i]    = a 
+                next_states [i, :] = self.state_to_input(s_).reshape(1, -1)
+                rewards     [i]    = r
+                not_terminal[i]    = 1 - d
+
 
 
             # Update the target using the Bellman equation
@@ -184,12 +230,14 @@ class DenseQAgent(agent.Agent):
             # and train the network to mimise the mismatch between its current prediction and the Bellmann prediction
             # The difference betweeen the Q values is computed in the loss function.
             targets                                    = self.model.predict_on_batch(states)
-            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.amax(self.model.predict_on_batch(next_states), axis=1)
+            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(self.model.predict_on_batch(next_states), axis=1)
 
+            if self.debug: 
+                print(states, targets)
             history = self.model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard])
 
             # Debugging: Print training progress
-            if self.episode % 100 == 0:
+            if self.episode % self.n_eval == 0:
                 print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
                 
         # Decrease learning and exploration rates
