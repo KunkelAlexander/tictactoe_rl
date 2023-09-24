@@ -45,12 +45,17 @@ class TrainingManager:
             eval_outputs.append(output) 
 
         draws, did_agent_win, cum_rewards = self.evaluate(eval_outputs, agents, n_eval)
-        print(f"Evaluation on {n_eval} episode: {np.sum(draws)/n_eval}", end = "") 
-        for i, agent in enumerate(agents): 
-            print(f":{np.sum(did_agent_win[i, :])/n_eval}", end="")
+
+        draw_rate       = np.sum(draws)/n_eval
+        victory_rates   = [np.sum(did_agent_win[i, :])/n_eval for i in range(len(agents))]
+        avg_cum_rewards = [np.sum(cum_rewards[i, :])/n_eval for i in range(len(agents))]
+
+        print(f"Evaluation on {n_eval} episode: {draw_rate}", end = "") 
+        for i in range(len(agents)): 
+            print(f":{victory_rates[i]}", end="")
         print("")
 
-        return draws, did_agent_win, cum_rewards
+        return draw_rate, victory_rates, avg_cum_rewards
 
     def run_training(self, config): 
         """
@@ -87,12 +92,15 @@ class TrainingManager:
             elif agent_type == "TABULAR_Q_AGENT": 
                 from agents.tabular_q_agent import TabularQAgent
                 agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay))
-            elif agent_type == "DEEP_Q_AGENT": 
-                from agents.deep_q_agent import DeepQAgent
-                agents.append(DeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=batch_size, replay_buffer_size=replay_buffer_size, n_eval=n_eval))
+            elif agent_type == "SIMPLE_DEEP_Q_AGENT": 
+                from agents.deep_q_agent import SimpleDeepQAgent
+                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "DUELLING_DEEP_Q_AGENT": 
-                from agents.duelling_deep_q_agent import DuellingDeepQAgent
-                agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay, batch_size=batch_size, replay_buffer_size=replay_buffer_size, n_eval=n_eval, target_update_freq=target_update_freq))
+                from agents.deep_q_agent import DuellingDeepQAgent
+                agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+            elif agent_type == "CONVOLUTIONAL_DUELLING_DEEP_Q_AGENT": 
+                from agents.deep_q_agent import ConvDuellingDeepQAgent
+                agents.append(ConvDuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "MINMAX_AGENT": 
                 from agents.minmax_agent import MinMaxAgent
                 agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=False))            
@@ -107,11 +115,11 @@ class TrainingManager:
 
         for episode in tqdm(range(n_episode)):
             game_manager = GameManager(game = self.game, agents = agents, gui = None)
-            output       = game_manager.run_game(do_training=True, randomise_order = randomise_order, only_legal_actions=only_legal_actions, debug=debug) 
-            outputs.append(output) 
+            game_manager.run_game(do_training=True, randomise_order = randomise_order, only_legal_actions=only_legal_actions, debug=debug) 
 
             if episode % eval_freq == 0: 
-                self.evaluate_agents(agents = agents, n_eval = n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions)
+                output = self.evaluate_agents(agents = agents, n_eval = n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions)
+                outputs.append((episode, output)) 
 
         mydir = os.path.join(
                     os.getcwd(), 
@@ -124,6 +132,7 @@ class TrainingManager:
             if e.errno != errno.EEXIST:
                 raise  # This was not a "directory exist" error..
 
+
         with open(mydir + "/training_information.txt", 'w') as f:
             print(f'agent_types         = {agent_types}',         file=f)
             print(f'n_episode           = {n_episode}',           file=f)
@@ -135,20 +144,25 @@ class TrainingManager:
             print(f'exploration_decay   = {exploration_decay}',   file=f)
             print(f'randmomise_order    = {randomise_order}',     file=f)
 
-        draws, did_agent_win, cum_rewards = self.evaluate(outputs, agents, n_episode) 
-        np.savetxt(mydir + "/draws.txt", draws)
-        for i, agent in enumerate(agents): 
-            np.savetxt(mydir + f"/did_agent_{agent.agent_id}_win.txt", did_agent_win[i])
-            np.savetxt(mydir + "/cum_reward.txt",    cum_rewards[i])
-        
-        moving_avg = lambda data, window_size: np.convolve(data, np.ones(window_size), mode='valid') / window_size
-        
+        episodes        = np.zeros(len(outputs))
+        draw_rates      = np.zeros(len(outputs))
+        victory_rates   = np.zeros((len(outputs), len(agents)))
+        avg_cum_rewards = np.zeros((len(outputs), len(agents)))
+        for i, (episode, output) in enumerate(outputs): 
+            draw_rate, victory_rate, avg_cum_reward = output
+            episodes[i]        = episode 
+            draw_rates[i]      = draw_rate 
+            victory_rates[i]   = victory_rate
+            avg_cum_rewards[i] = avg_cum_reward
+
+
         plt.title("Game outcomes")
         plt.ylabel("Fraction of game outcomes")
         plt.xlabel("Number of episodes")
-        plt.plot(moving_avg(draws, window_size), label="draws")
+
+        plt.plot(episodes, draw_rates, label="draws")
         for i, agent in enumerate(agents): 
-            plt.plot(moving_avg(did_agent_win[i], window_size), label=f"{agent.name} wins")
+            plt.plot(episodes, victory_rates[:, i], label=f"{agent.name} wins")
         plt.legend()
         plt.show() 
         plt.savefig(mydir + "/outcomes.png")
@@ -158,11 +172,11 @@ class TrainingManager:
         plt.ylabel("Cumulative rewards per episode")
         plt.xlabel("Number of episodes")
         for i, agent in enumerate(agents): 
-            plt.plot(moving_avg(cum_rewards[i], window_size), label=f"{agent.name} reward")
+            plt.plot(episodes, avg_cum_rewards[:, i], label=f"{agent.name} reward")
         plt.legend()
         plt.show() 
         plt.savefig(mydir + "/rewards.png")
         plt.close()
 
-        return agents, draws, did_agent_win, cum_rewards
+        return agents, draw_rates, victory_rates, avg_cum_rewards
 

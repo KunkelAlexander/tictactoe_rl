@@ -11,6 +11,7 @@ from tensorflow import keras
 from collections import deque
 import random 
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint  # Import ModelCheckpoint callback
+from tensorflow.keras import layers, models
 import os 
 from util import decimal_to_base
 
@@ -24,11 +25,75 @@ os.makedirs(log_dir, exist_ok=True)
 
 # View logs via tensorboard --logdir=./logs
 
+# Define the simple DQN model 
+def build_simple_dqn_model(input_shape, num_actions):
+    
+    # Shared layers for both the value and advantage streams
+    inputs  = tf.keras.layers.Input(shape=input_shape)
+    layer1  = tf.keras.layers.Dense(256, activation='relu')(inputs)
+    outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer1)
+
+    # Create the model
+    model = models.Model(inputs=inputs, outputs=outputs)
+    return model
+    
+# Define the Dueling DQN model
+def build_dueling_dqn_model(input_shape, num_actions):
+    # Shared layers for both the value and advantage streams
+    inputs = tf.keras.layers.Input(shape=input_shape)
+    shared_layer1 = tf.keras.layers.Dense(128, activation='relu')(inputs)
+
+    # Value stream
+    value_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
+    value_stream = tf.keras.layers.Dense(1)(value_stream)
+
+    # Advantage stream
+    advantage_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
+    advantage_stream = tf.keras.layers.Dense(num_actions)(advantage_stream)
+
+    # Combine value and advantage streams to get Q-values
+    Q_values = value_stream + (advantage_stream - tf.math.reduce_mean(advantage_stream, axis=1, keepdims=True))
+
+    # Create the model
+    model = models.Model(inputs=inputs, outputs=Q_values)
+    return model
+
+
+# Define the Dueling DQN model
+def build_convolutional_dueling_dqn_model(input_shape, num_actions):
+
+    # Input layer
+    inputs = tf.keras.layers.Input(shape=input_shape, name='input_state')
+
+    # Shared layers for both the value and advantage streams
+    conv_layer1   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(inputs)
+    conv_layer2   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer1)
+    conv_layer3   = tf.keras.layers.Conv2D(64, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
+    flatten       = tf.keras.layers.Flatten()(conv_layer3) 
+    shared_layer1 = tf.keras.layers.Dense(128, activation='relu')(flatten) 
+
+    # Value stream
+    value_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
+    value_stream = tf.keras.layers.Dense(1)(value_stream)
+
+    # Advantage stream
+    advantage_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
+    advantage_stream = tf.keras.layers.Dense(num_actions)(advantage_stream)
+
+    # Combine value and advantage streams to get Q-values
+    Q_values = value_stream + (advantage_stream - tf.math.reduce_mean(advantage_stream, axis=1, keepdims=True))
+
+    # Create the model
+    model = models.Model(inputs=inputs, outputs=Q_values)
+    return model
+
+
+
 class DeepQAgent(agent.Agent): 
     MODE_BINARY   = 0 
     MODE_TUTORIAL = 1
 
-    def __init__(self, agent_id, n_actions, n_states, learning_rate, discount, exploration, learning_rate_decay, exploration_decay, batch_size, replay_buffer_size, n_eval): 
+    def __init__(self, agent_id, n_actions, n_states, config): 
         """
         Initialize a Q-learning agent with a dense neural network
 
@@ -43,30 +108,39 @@ class DeepQAgent(agent.Agent):
         """
         super().__init__(agent_id, n_actions) 
         self.n_states            = n_states
-        self.learning_rate       = learning_rate
-        self.discount            = discount
-        self.exploration         = exploration
-        self.learning_rate_decay = learning_rate_decay
-        self.exploration_decay   = exploration_decay
+
         self.name                = f"deep-q agent {agent_id}"
-        self.batch_size          = batch_size
-        self.replay_buffer       = deque(maxlen=replay_buffer_size)
+        self.board_size          = config["board_size"]    
+        self.n_episode           = config["n_episode"]     
+        self.n_eval              = config["n_eval"]        
+        self.eval_freq           = config["eval_freq"]     
+        self.window_size         = config["window_size"]   
+        self.discount            = config["discount"]      
+        self.learning_rate       = config["learning_rate"] 
+        self.learning_rate_decay = config["learning_rate_decay"]
+        self.exploration         = config["exploration"]   
+        self.exploration_decay   = config["exploration_decay"]
+        self.batch_size          = config["batch_size"]
+        self.replay_buffer_size  = config["replay_buffer_size"]
+        self.n_eval              = config["n_eval"]
+        self.target_update_freq  = config["target_update_freq"]
+        self.update_counter      = 0
+        self.episode             = 0
+        self.debug               = False
+        self.training_buffer     = []
+
+        self.replay_buffer       = deque(maxlen=self.replay_buffer_size)
         self.input_mode          = self.MODE_TUTORIAL
         if self.input_mode == self.MODE_BINARY:
-            self.input_shape    = len(self.state_to_input(self.n_states -1))
+            self.input_shape     = (len(self.state_to_input(self.n_states -1)), )
         elif self.input_mode == self.MODE_TUTORIAL:
-            self.input_shape     = 3 * n_actions 
+            self.input_shape     = (3 * n_actions, )
         else: 
             raise ValueError("Unsupported input mode")
         
-        # Define the Q-Network
-        self.model = keras.Sequential([
-            keras.layers.Dense(256, activation='relu', input_shape=(self.input_shape,)),
-            keras.layers.Dense(n_actions, activation='linear')
-        ])
-
-        # Compile the model
-        self.model.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss='mse')
+        # Models need to be defined and compiled in derived classes 
+        self.online_model        = None 
+        self.target_model        = None 
 
         # Create a ModelCheckpoint callback to save model checkpoints during training
         self.checkpoint_callback = ModelCheckpoint(
@@ -84,11 +158,6 @@ class DeepQAgent(agent.Agent):
             write_images=True
         )
 
-        # Training episode
-        self.episode = 0
-        self.debug   = False
-        self.training_buffer = []
-        self.n_eval = n_eval 
 
 
     def update(self, iteration, state, legal_actions, action, reward, done):
@@ -123,7 +192,7 @@ class DeepQAgent(agent.Agent):
 
         if self.input_mode == self.MODE_TUTORIAL: 
             n = 9 
-            base_array = decimal_to_base(state, base = 3, padding = n) 
+            base_array     = decimal_to_base(state, base = 3, padding = n) 
             representation = np.zeros(3 * n) 
             for i, b in enumerate(base_array):
                 if b == 0:
@@ -137,7 +206,51 @@ class DeepQAgent(agent.Agent):
         else:
             raise ValueError("Unsupported input mode")
 
-        return representation
+        return tf.convert_to_tensor(representation.reshape(1, -1))
+    
+    def validate_training_data(self): 
+        # Check integrity of training data 
+        if self.training_data[-1][self.DONE] is not True: 
+            raise ValueError("Last training datum not done")
+        
+        # Validate iteration number
+        for i in range(len(self.training_data) - 1): 
+            i1 = self.training_data[i  ][self.ITERATION]
+            i2 = self.training_data[i+1][self.ITERATION]
+            if (i1 + 1 != i2):
+                raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
+            
+    def move_training_data_to_replay_buffer(self):
+
+        self.validate_training_data() 
+
+        # Connect state with next state and move to replay buffer
+        for i in range(len(self.training_data)): 
+            iteration, state, legal_actions, action, reward, done = self.training_data[i]
+            if not done: 
+                next_state = self.training_data[i+1][self.STATE]
+            else: 
+                next_state = 0
+            self.replay_buffer.append([state, action, next_state, reward, done])
+
+        self.is_training = []
+
+    def minibatch_to_arrays(self, minibatch):
+
+        states       = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
+        actions      = np.zeros(len(minibatch), dtype=np.int32)
+        next_states  = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
+        rewards      = np.zeros(len(minibatch), dtype=np.float32)
+        not_terminal = np.zeros(len(minibatch), dtype=np.float32)
+
+        for i, (s, a, s_, r, d) in enumerate(minibatch):
+            states      [i, :] = self.state_to_input(s)
+            actions     [i]    = a 
+            next_states [i, :] = self.state_to_input(s_)
+            rewards     [i]    = r
+            not_terminal[i]    = 1 - d
+
+        return tf.convert_to_tensor(states), tf.convert_to_tensor(actions), tf.convert_to_tensor(next_states), tf.convert_to_tensor(rewards), tf.convert_to_tensor(not_terminal)
 
     def act(self, state, actions): 
         """
@@ -152,14 +265,9 @@ class DeepQAgent(agent.Agent):
             action = np.random.choice(actions)
         # exploit
         else:
-            # disable q-values of illegal actions
-            illegal_actions    = np.setdiff1d(np.arange(self.n_actions), actions) 
-            #best_actions      = np.argwhere(self.q[state] == np.max(self.q[state]))
-            #action            = np.random.choice(best_actions.flatten())
-            s                  = self.state_to_input(state).reshape(1, -1)
-            q                  = self.model(s, training=False).numpy().flatten()
-            #q[illegal_actions] = -np.inf
-            action = np.argmax(q) 
+            s = self.state_to_input(state)
+            q = self.online_model(s, training=False)
+            action = tf.argmax(q, axis=1) 
     
             if self.debug:
                 print(f"Pick action {action} in state {state} with q-values {q[action], q}")
@@ -179,62 +287,27 @@ class DeepQAgent(agent.Agent):
         if not self.is_training:
             return 
 
-        # Check integrity of training data 
-        if self.training_data[-1][self.DONE] is not True: 
-            raise ValueError("Last training datum not done")
-        
-        # Validate iteration number
-        for i in range(len(self.training_data) - 1): 
-            i1 = self.training_data[i  ][self.ITERATION]
-            i2 = self.training_data[i+1][self.ITERATION]
-            if (i1 + 1 != i2):
-                raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
-            
-        # Connect state with next state and move to replay buffer
-        for i in range(len(self.training_data)): 
-            iteration, state, legal_actions, action, reward, done = self.training_data[i]
-            if not done: 
-                next_state = self.training_data[i+1][self.STATE]
-            else: 
-                next_state = 0
-            self.replay_buffer.append([state, action, next_state, reward, done])
-
-        self.is_training = []
+        self.move_training_data_to_replay_buffer() 
 
         # Sample a random minibatch from the replay replay_buffer
         if len(self.replay_buffer) >= self.batch_size:
 
-            mini_batch = random.sample(self.replay_buffer, self.batch_size)
-            
-            states       = np.zeros((len(mini_batch), self.input_shape), dtype=float)
-            next_states  = np.zeros((len(mini_batch), self.input_shape), dtype=float)
-            actions      = np.zeros(len(mini_batch), dtype=int)
-            rewards      = np.zeros(len(mini_batch), dtype=float)
-            not_terminal = np.zeros(len(mini_batch), dtype=int)
- 
-            for i, (s, a, s_, r, d) in enumerate(mini_batch):
-                states      [i, :] = self.state_to_input(s).reshape(1, -1)
-                actions     [i]    = a 
-                next_states [i, :] = self.state_to_input(s_).reshape(1, -1)
-                rewards     [i]    = r
-                not_terminal[i]    = 1 - d
+            minibatch = random.sample(self.replay_buffer, self.batch_size)
+            states, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
 
-
-
-            # Update the target using the Bellman equation
-            # If it's a terminal state, set the target to the immediate reward
-            # Note that Bellman equation here takes slightly different shape than for tabular_q_agent
-            # In tabular Q-learning, we compute delta Q and add it to Q(s). 
-            # In order to compute the difference delta Q, we subtract by lr * Q(s). 
-            # In Deep-Q-learning, the network represents Q(s). We compute the target Q-value given the Bellman equation
-            # and train the network to mimise the mismatch between its current prediction and the Bellmann prediction
-            # The difference betweeen the Q values is computed in the loss function.
-            targets                                    = self.model.predict_on_batch(states)
-            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(self.model.predict_on_batch(next_states), axis=1)
+            targets      = self.online_model.predict_on_batch(states)
+            next_targets = self.target_model.predict_on_batch(next_states)
+            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(next_targets, axis=1)
 
             if self.debug: 
                 print(states, targets)
-            history = self.model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard])
+
+            history = self.online_model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard])
+
+            # Update the target network periodically
+            self.update_counter += 1
+            if self.update_counter % self.target_update_freq == 0:
+                self.target_model.set_weights(self.online_model.get_weights())
 
             # Debugging: Print training progress
             if self.episode % self.n_eval == 0:
@@ -244,3 +317,88 @@ class DeepQAgent(agent.Agent):
         self.exploration   *= self.exploration_decay
         self.episode       += 1 
 
+class SimpleDeepQAgent(DeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        Initialize a Q-learning agent with a dense neural network
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param learning_rate:       The learning rate (alpha).
+        :param discount:            The discount factor (gamma).
+        :param exploration:         The exploration rate (epsilon).
+        :param learning_rate_decay: The learning rate decay factor.
+        :param exploration_decay:   The exploration rate decay factor.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        # Define the Q-Network
+        self.online_model = build_simple_dqn_model(self.input_shape, self.n_actions)
+        self.target_model = self.online_model 
+
+        # Compile the model
+        self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
+
+
+class DuellingDeepQAgent(DeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        Initialize a Q-learning agent with a dense neural network
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param learning_rate:       The learning rate (alpha).
+        :param discount:            The discount factor (gamma).
+        :param exploration:         The exploration rate (epsilon).
+        :param learning_rate_decay: The learning rate decay factor.
+        :param exploration_decay:   The exploration rate decay factor.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+
+        # Create the online Dueling DQN model
+        self.online_model = build_dueling_dqn_model(self.input_shape, self.n_actions)
+
+        # Create the target Dueling DQN model
+        self.target_model = build_dueling_dqn_model(self.input_shape, self.n_actions)
+        self.target_model.set_weights(self.online_model.get_weights())
+
+        # Compile the online model
+        self.online_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
+                                  loss='mean_squared_error')
+        
+
+
+
+
+class ConvDuellingDeepQAgent(DeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        if self.input_mode != self.MODE_TUTORIAL:
+            raise ValueError("Only input in MODE_TUTORIAL (one-hot) supported in convolutional network")
+        
+        self.input_shape = (3, 3, 3)
+
+        # Create the online Dueling DQN model
+        self.online_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions)
+
+        # Create the target Dueling DQN model
+        self.target_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions)
+        self.target_model.set_weights(self.online_model.get_weights())
+
+        # Compile the online model
+        self.online_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
+                                  loss='mean_squared_error')
+        
+
+    def state_to_input(self, state):
+        # Convert to NHWC (batch size, height, width, number of channels)
+        input = super().state_to_input(state).reshape(1, 3, 3, 3).transpose([0,2,3,1])
+        print(input) 
+        return input
