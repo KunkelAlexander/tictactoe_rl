@@ -27,8 +27,14 @@ os.makedirs(log_dir, exist_ok=True)
 
 # Define the simple DQN model 
 def build_simple_dqn_model(input_shape, num_actions):
+    """
+    Build a simple DQN (Deep Q-Network) model.
+
+    :param input_shape: The shape of the input state.
+    :param num_actions: The number of available actions.
+    :return: A Keras model for the simple DQN.
+    """
     
-    # Shared layers for both the value and advantage streams
     inputs  = tf.keras.layers.Input(shape=input_shape)
     layer1  = tf.keras.layers.Dense(256, activation='relu')(inputs)
     outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer1)
@@ -39,6 +45,13 @@ def build_simple_dqn_model(input_shape, num_actions):
     
 # Define the Dueling DQN model
 def build_dueling_dqn_model(input_shape, num_actions):
+    """
+    Build a simple DQN (Deep Q-Network) model.
+
+    :param input_shape: The shape of the input state.
+    :param num_actions: The number of available actions.
+    :return: A Keras model for the simple DQN.
+    """
     # Shared layers for both the value and advantage streams
     inputs = tf.keras.layers.Input(shape=input_shape)
     shared_layer1 = tf.keras.layers.Dense(128, activation='relu')(inputs)
@@ -61,6 +74,13 @@ def build_dueling_dqn_model(input_shape, num_actions):
 
 # Define the Dueling DQN model
 def build_convolutional_dueling_dqn_model(input_shape, num_actions):
+    """
+    Build a Dueling DQN (Deep Q-Network) model with convolutional layers.
+
+    :param input_shape: The shape of the input state.
+    :param num_actions: The number of available actions.
+    :return: A Keras model for the convolutional Dueling DQN.
+    """
 
     # Input layer
     inputs = tf.keras.layers.Input(shape=input_shape, name='input_state')
@@ -93,18 +113,26 @@ class DeepQAgent(agent.Agent):
     MODE_BINARY   = 0 
     MODE_TUTORIAL = 1
 
-    def __init__(self, agent_id, n_actions, n_states, config): 
+    def __init__(self, agent_id, n_actions, n_states, config):         
         """
-        Initialize a Q-learning agent with a dense neural network
+        Initialize a Deep Q-Network (DQN) agent for reinforcement learning.
 
         :param agent_id:            The ID of the agent.
         :param n_actions:           The number of available actions.
         :param n_states:            The number of states in the environment.
-        :param learning_rate:       The learning rate (alpha).
-        :param discount:            The discount factor (gamma).
-        :param exploration:         The exploration rate (epsilon).
-        :param learning_rate_decay: The learning rate decay factor.
-        :param exploration_decay:   The exploration rate decay factor.
+        :param config:              A dictionary containing agent configuration parameters.
+                                    - 'board_size': The size of the game board.
+                                    - 'n_episode': The total number of episodes for training.
+                                    - 'n_eval': The frequency of evaluation episodes.
+                                    - 'eval_freq': The evaluation frequency in episodes.
+                                    - 'discount': The discount factor (gamma).
+                                    - 'learning_rate': The learning rate (alpha).
+                                    - 'learning_rate_decay': The learning rate decay factor.
+                                    - 'exploration': The exploration rate (epsilon).
+                                    - 'exploration_decay': The exploration rate decay factor.
+                                    - 'batch_size': The batch size for training.
+                                    - 'replay_buffer_size': The size of the replay buffer.
+                                    - 'target_update_freq': The frequency of updating the target network.
         """
         super().__init__(agent_id, n_actions) 
         self.n_states            = n_states
@@ -114,7 +142,6 @@ class DeepQAgent(agent.Agent):
         self.n_episode           = config["n_episode"]     
         self.n_eval              = config["n_eval"]        
         self.eval_freq           = config["eval_freq"]     
-        self.window_size         = config["window_size"]   
         self.discount            = config["discount"]      
         self.learning_rate       = config["learning_rate"] 
         self.learning_rate_decay = config["learning_rate_decay"]
@@ -164,10 +191,12 @@ class DeepQAgent(agent.Agent):
         """
         Update the Q-values based on the Q-learning update rule.
 
-        :param state:      The current state.
-        :param action:     The selected action.
-        :param next_state: The next state.
-        :param reward:     The observed reward.
+        :param iteration:      The current iteration.
+        :param state:          The current state.
+        :param legal_actions:  List of legal actions.
+        :param action:         The selected action.
+        :param reward:         The observed reward.
+        :param done:           Boolean indicating whether the episode is done.
         """
         super().update(iteration, state, legal_actions, action, reward, done)
         if self.is_training: 
@@ -176,12 +205,9 @@ class DeepQAgent(agent.Agent):
 
     def final_update(self, reward):
         """
-        Update the Q-values based on the Q-learning update rule.
+        Update the training data after the final step of an episode.
 
-        :param state:      The current state.
-        :param action:     The selected action.
-        :param next_state: The next state.
-        :param reward:     The observed reward.
+        :param reward: The final observed reward.
         """
         super().final_update(reward)
         if self.is_training: 
@@ -189,7 +215,12 @@ class DeepQAgent(agent.Agent):
             self.training_data[-1][self.REWARD] += reward
             
     def state_to_input(self, state): 
+        """
+        Convert the state into an input representation suitable for the neural network.
 
+        :param state: The current state.
+        :return:      The input representation of the state.
+        """
         if self.input_mode == self.MODE_TUTORIAL: 
             n = 9 
             base_array     = decimal_to_base(state, base = 3, padding = n) 
@@ -209,6 +240,9 @@ class DeepQAgent(agent.Agent):
         return tf.convert_to_tensor(representation.reshape(1, -1))
     
     def validate_training_data(self): 
+        """
+        Validate the integrity of training data, checking for missing iterations and incomplete episodes.
+        """
         # Check integrity of training data 
         if self.training_data[-1][self.DONE] is not True: 
             raise ValueError("Last training datum not done")
@@ -221,7 +255,9 @@ class DeepQAgent(agent.Agent):
                 raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
             
     def move_training_data_to_replay_buffer(self):
-
+        """
+        Move training data to the replay buffer, connecting states with their subsequent states.
+        """
         self.validate_training_data() 
 
         # Connect state with next state and move to replay buffer
@@ -236,7 +272,12 @@ class DeepQAgent(agent.Agent):
         self.is_training = []
 
     def minibatch_to_arrays(self, minibatch):
+        """
+        Convert a minibatch of experiences into arrays for training.
 
+        :param minibatch: A minibatch of experiences.
+        :return:          Tensors containing states, actions, next_states, rewards, and not_terminal flags.
+        """
         states       = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
         actions      = np.zeros(len(minibatch), dtype=np.int32)
         next_states  = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
@@ -256,8 +297,9 @@ class DeepQAgent(agent.Agent):
         """
         Select an action using an epsilon-greedy policy.
 
-        :param state: The current state.
-        :return:      The selected action.
+        :param state:   The current state.
+        :param actions: List of available actions.
+        :return:        The selected action.
         """
 
         # explore
@@ -276,12 +318,7 @@ class DeepQAgent(agent.Agent):
     
     def train(self):
         """
-        Update the Q-values based on the Q-learning update rule.
-
-        :param state:      The current state.
-        :param action:     The selected action.
-        :param next_state: The next state.
-        :param reward:     The observed reward.
+        Train the agent's Q-network using experiences from the replay buffer.
         """
 
         if not self.is_training:
@@ -321,16 +358,12 @@ class SimpleDeepQAgent(DeepQAgent):
 
     def __init__(self, agent_id, n_actions, n_states, config): 
         """
-        Initialize a Q-learning agent with a dense neural network
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
 
         :param agent_id:            The ID of the agent.
         :param n_actions:           The number of available actions.
         :param n_states:            The number of states in the environment.
-        :param learning_rate:       The learning rate (alpha).
-        :param discount:            The discount factor (gamma).
-        :param exploration:         The exploration rate (epsilon).
-        :param learning_rate_decay: The learning rate decay factor.
-        :param exploration_decay:   The exploration rate decay factor.
+        :param config:              A dictionary containing configuration parameters.
         """
         super().__init__(agent_id, n_actions, n_states, config) 
 
@@ -346,16 +379,12 @@ class DuellingDeepQAgent(DeepQAgent):
 
     def __init__(self, agent_id, n_actions, n_states, config): 
         """
-        Initialize a Q-learning agent with a dense neural network
+        A Q-learning agent with a dueling dense neural network architecture for Q-value approximation.
 
         :param agent_id:            The ID of the agent.
         :param n_actions:           The number of available actions.
         :param n_states:            The number of states in the environment.
-        :param learning_rate:       The learning rate (alpha).
-        :param discount:            The discount factor (gamma).
-        :param exploration:         The exploration rate (epsilon).
-        :param learning_rate_decay: The learning rate decay factor.
-        :param exploration_decay:   The exploration rate decay factor.
+        :param config:              A dictionary containing configuration parameters.
         """
         super().__init__(agent_id, n_actions, n_states, config) 
 
@@ -378,6 +407,15 @@ class DuellingDeepQAgent(DeepQAgent):
 class ConvDuellingDeepQAgent(DeepQAgent): 
 
     def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        A Q-learning agent with a convolutional neural network using a dueling architecture for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        
         super().__init__(agent_id, n_actions, n_states, config) 
 
         if self.input_mode != self.MODE_TUTORIAL:
