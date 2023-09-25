@@ -100,7 +100,7 @@ class GameManager:
             "ONGOING": 0.0,
             "DRAW": 0.5,
             "VICTORY": 1.0,
-            "DEFEAT": 0.0
+            "DEFEAT":  0.0
         }
         return np.sum([rewards[event] for event in events])
 

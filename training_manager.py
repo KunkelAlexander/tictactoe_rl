@@ -91,10 +91,16 @@ class TrainingManager:
                 agents.append(RandomAgent  (agent_id=i+1, n_actions=9))
             elif agent_type == "TABULAR_Q_AGENT": 
                 from agents.tabular_q_agent import TabularQAgent
-                agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, learning_rate=learning_rate, discount=discount, exploration=exploration, learning_rate_decay=learning_rate_decay, exploration_decay=exploration_decay))
+                agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "SIMPLE_DEEP_Q_AGENT": 
                 from agents.deep_q_agent import SimpleDeepQAgent
-                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))       
+            elif agent_type == "DUAL_DEEP_Q_AGENT": 
+                from agents.deep_q_agent import DualDeepQAgent
+                agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))             
+            elif agent_type == "PRIORITISED_SIMPLE_DEEP_Q_AGENT": 
+                from agents.deep_q_agent import PrioritisedSimpleDeepQAgent
+                agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "DUELLING_DEEP_Q_AGENT": 
                 from agents.deep_q_agent import DuellingDeepQAgent
                 agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
@@ -174,7 +180,6 @@ class TrainingManager:
         for i, agent in enumerate(agents): 
             plt.plot(episodes, avg_cum_rewards[:, i], label=f"{agent.name} reward")
         plt.legend()
-        plt.show() 
         plt.savefig(mydir + "/rewards.png")
         plt.close()
 

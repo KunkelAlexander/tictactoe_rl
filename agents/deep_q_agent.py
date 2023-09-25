@@ -52,28 +52,29 @@ def build_dueling_dqn_model(input_shape, num_actions):
     :param num_actions: The number of available actions.
     :return: A Keras model for the simple DQN.
     """
-    # Shared layers for both the value and advantage streams
     inputs = tf.keras.layers.Input(shape=input_shape)
-    shared_layer1 = tf.keras.layers.Dense(128, activation='relu')(inputs)
+
+
+    # Shared layers for both the value and advantage streams
+    dense = keras.layers.Dense(256, activation='relu')(inputs)
 
     # Value stream
-    value_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
-    value_stream = tf.keras.layers.Dense(1)(value_stream)
+    value_stream = keras.layers.Dense(32, activation='relu')(dense)
+    value        = tf.keras.layers.Dense(1, activation='relu')(value_stream)
 
-    # Advantage stream
-    advantage_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
-    advantage_stream = tf.keras.layers.Dense(num_actions)(advantage_stream)
+    # Advantage stream    
+    advantage_stream = keras.layers.Dense(32, activation='relu')(dense)
+    advantage        = tf.keras.layers.Dense(num_actions, activation='relu')(advantage_stream)
 
     # Combine value and advantage streams to get Q-values
-    Q_values = value_stream + (advantage_stream - tf.math.reduce_mean(advantage_stream, axis=1, keepdims=True))
+    Q_values = value + (advantage - tf.math.reduce_mean(advantage, axis=1, keepdims=True))
 
     # Create the model
     model = models.Model(inputs=inputs, outputs=Q_values)
     return model
 
-
 # Define the Dueling DQN model
-def build_convolutional_dueling_dqn_model(input_shape, num_actions):
+def build_convolutional_dueling_dqn_model(input_shape, num_actions, reg_strength):
     """
     Build a Dueling DQN (Deep Q-Network) model with convolutional layers.
 
@@ -88,20 +89,36 @@ def build_convolutional_dueling_dqn_model(input_shape, num_actions):
     # Shared layers for both the value and advantage streams
     conv_layer1   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(inputs)
     conv_layer2   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer1)
-    conv_layer3   = tf.keras.layers.Conv2D(64, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
+    conv_layer3   = tf.keras.layers.Conv2D(64, (3, 3),  data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
     flatten       = tf.keras.layers.Flatten()(conv_layer3) 
-    shared_layer1 = tf.keras.layers.Dense(128, activation='relu')(flatten) 
+    shared_layer  = tf.keras.layers.Dense(256, 
+                                          kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                                          kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
+                                          activation='relu')(flatten) 
+
 
     # Value stream
-    value_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
-    value_stream = tf.keras.layers.Dense(1)(value_stream)
+    value_stream = keras.layers.Dense( 32, 
+                                       kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                                       kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
+                                       activation='relu')(shared_layer)
+    value = tf.keras.layers.Dense( 1, 
+                                   kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                                   kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
+                                   activation='relu')(value_stream)
 
-    # Advantage stream
-    advantage_stream = tf.keras.layers.Dense(32, activation='relu')(shared_layer1)
-    advantage_stream = tf.keras.layers.Dense(num_actions)(advantage_stream)
+    # Advantage stream    
+    advantage_stream = keras.layers.Dense( 32, 
+                                           kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                                           kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
+                                           activation='relu')(shared_layer)
+    advantage = tf.keras.layers.Dense( num_actions,
+                                       kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                                       kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
+                                       activation='relu')(advantage_stream)
 
     # Combine value and advantage streams to get Q-values
-    Q_values = value_stream + (advantage_stream - tf.math.reduce_mean(advantage_stream, axis=1, keepdims=True))
+    Q_values = value + (advantage - tf.math.reduce_mean(advantage, axis=1, keepdims=True))
 
     # Create the model
     model = models.Model(inputs=inputs, outputs=Q_values)
@@ -314,6 +331,9 @@ class DeepQAgent(agent.Agent):
             if self.debug:
                 print(f"Pick action {action} in state {state} with q-values {q[action], q}")
 
+        # Decrease exploration rate
+        self.exploration   *= self.exploration_decay
+
         return action 
     
     def train(self):
@@ -350,8 +370,6 @@ class DeepQAgent(agent.Agent):
             if self.episode % self.n_eval == 0:
                 print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
                 
-        # Decrease learning and exploration rates
-        self.exploration   *= self.exploration_decay
         self.episode       += 1 
 
 class SimpleDeepQAgent(DeepQAgent): 
@@ -370,6 +388,28 @@ class SimpleDeepQAgent(DeepQAgent):
         # Define the Q-Network
         self.online_model = build_simple_dqn_model(self.input_shape, self.n_actions)
         self.target_model = self.online_model 
+
+        # Compile the model
+        self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
+
+
+class DualDeepQAgent(DeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        # Define the Q-Network
+        self.online_model = build_simple_dqn_model(self.input_shape, self.n_actions)
+        self.target_model = build_simple_dqn_model(self.input_shape, self.n_actions)
+        self.target_model.set_weights(self.online_model.get_weights())
 
         # Compile the model
         self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
@@ -423,20 +463,205 @@ class ConvDuellingDeepQAgent(DeepQAgent):
         
         self.input_shape = (3, 3, 3)
 
+        reg_strength = 0.01 
+
         # Create the online Dueling DQN model
-        self.online_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions)
+        self.online_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions, reg_strength=reg_strength)
 
         # Create the target Dueling DQN model
-        self.target_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions)
+        self.target_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions, reg_strength=reg_strength)
         self.target_model.set_weights(self.online_model.get_weights())
 
+        
+        # Define a custom loss function that includes regularization
+        def loss(y_true, y_pred):
+            mse_loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
+            reg_loss = reg_strength * sum(self.online_model.losses)  # Sum of all regularization losses
+            return mse_loss + reg_loss
+    
         # Compile the online model
         self.online_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
-                                  loss='mean_squared_error')
+                                  loss=loss)
         
 
     def state_to_input(self, state):
         # Convert to NHWC (batch size, height, width, number of channels)
-        input = super().state_to_input(state).reshape(1, 3, 3, 3).transpose([0,2,3,1])
-        print(input) 
+        input = super().state_to_input(state)
+        input = tf.reshape(input, (1, 3, 3, 3))
+        input = tf.transpose(input, [0,2,3,1])
         return input
+
+
+class PrioritizedReplayBuffer:
+    def __init__(self, maxlen, alpha=0.6, beta = 0.4, epsilon=1e-6):
+        self.maxlen = maxlen
+        self.alpha = alpha
+        self.beta  = beta
+        self.epsilon = epsilon
+        self.tree = SumTree(maxlen)
+
+    def add(self, experience, priority):
+        self.tree.add(experience, priority)
+
+    def sample(self, batch_size):
+        batch = []
+        indices = []
+        priorities = []
+
+        segment = self.tree.total() / batch_size
+
+        for i in range(batch_size):
+            a = segment * i
+            b = segment * (i + 1)
+
+            s = np.random.uniform(a, b)
+            (index, priority, experience) = self.tree.get(s)
+            indices.append(index)
+            priorities.append(priority)
+            batch.append(experience)
+
+        total_priority = np.max(priorities)
+        weights = (len(self.tree) * np.array(priorities)) ** (-self.beta)
+        weights /= max(weights)
+        return batch, indices, weights
+
+    def update_priorities(self, indices, priorities):
+        for i, priority in zip(indices, priorities):
+            self.tree.update(i, (priority + self.epsilon) ** self.alpha)
+
+    def __len__(self):
+        return len(self.tree)
+
+class SumTree:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        self.data = np.zeros(capacity, dtype=object)
+        self.write = 0
+        self.n_entries = 0
+
+    def add(self, data, priority):
+        tree_index = self.write + self.capacity - 1
+
+        self.data[self.write] = data
+        self.update(tree_index, priority)
+
+        self.write += 1
+        if self.write >= self.capacity:
+            self.write = 0
+        if self.n_entries < self.capacity:
+            self.n_entries += 1
+
+    def update(self, tree_index, priority):
+        change = priority - self.tree[tree_index]
+        self.tree[tree_index] = priority
+        while tree_index != 0:
+            tree_index = (tree_index - 1) // 2
+            self.tree[tree_index] += change
+
+    def get(self, value):
+        parent_index = 0
+        while True:
+            left_child_index = 2 * parent_index + 1
+            right_child_index = left_child_index + 1
+
+            if left_child_index >= len(self.tree):
+                break
+
+            if value <= self.tree[left_child_index]:
+                parent_index = left_child_index
+            else:
+                value -= self.tree[left_child_index]
+                parent_index = right_child_index
+
+        data_index = parent_index - self.capacity + 1
+        return parent_index, self.tree[parent_index], self.data[data_index]
+
+    def total(self):
+        return self.tree[0]
+
+    def __len__(self):
+        return self.n_entries
+
+
+class PrioritisedSimpleDeepQAgent(SimpleDeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        print("Creating prioritised experience replay buffer")
+        self.alpha = 0.6
+        self.beta  = 0.4
+        self.epsilon = 1e-6
+        self.replay_buffer = PrioritizedReplayBuffer(maxlen=self.replay_buffer_size, alpha=0.6, beta = 0.4, epsilon=1e-6)
+
+    def move_training_data_to_replay_buffer(self):
+        self.validate_training_data()
+
+        for i in range(len(self.training_data)):
+            iteration, state, legal_actions, action, reward, done = self.training_data[i]
+            if not done:
+                next_state = self.training_data[i + 1][self.STATE]
+            else:
+                next_state = 0
+
+            # Compute the priority based on the TD error or loss
+            current_q_values = self.online_model(self.state_to_input(state),      training=False)
+            next_q_values    = self.target_model(self.state_to_input(next_state), training=False)
+
+            target = reward + (1 - done) * self.discount * np.max(next_q_values, axis=1)
+
+            # Compute mismatch between model prediction and value predicted by Bellmann equation
+            td_error = tf.abs(target - current_q_values[0, int(action)])
+
+            # Add small epsilon so that all samples have a chance of being revisited
+            priority = (td_error + self.epsilon) ** self.alpha
+
+            # Add the experience and priority to the prioritized replay buffer
+            self.replay_buffer.add((state, action, next_state, reward, done), priority)
+
+    def train(self):
+        if not self.is_training:
+            return
+        
+        self.move_training_data_to_replay_buffer() 
+
+        if len(self.replay_buffer) >= self.batch_size:
+            # Sample a minibatch from the prioritized replay buffer
+            minibatch, batch_indices, weights = self.replay_buffer.sample(self.batch_size)
+
+            states, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
+
+            targets        = self.online_model.predict_on_batch(states)
+            next_targets   = self.target_model.predict_on_batch(next_states)
+            target_updates = rewards + not_terminal * self.discount * np.max(next_targets, axis=1)
+
+            # Update priorities in the replay buffer based on the TD error
+            td_errors = np.abs(targets[np.arange(self.batch_size), actions] - target_updates)
+            
+            priorities = (td_errors + self.epsilon) ** self.alpha
+            self.replay_buffer.update_priorities(batch_indices, priorities)
+
+            # Update targets
+            targets[np.arange(len(targets)), actions] = target_updates
+
+            # Perform the training step using the computed weights
+            history = self.online_model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard], sample_weight=weights)
+
+            # Update the target network periodically
+            self.update_counter += 1
+            if self.update_counter % self.target_update_freq == 0:
+                self.target_model.set_weights(self.online_model.get_weights())
+
+            # Decrease learning and exploration rates
+            self.exploration *= self.exploration_decay
+
+        self.episode += 1
