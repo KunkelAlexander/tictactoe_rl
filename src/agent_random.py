@@ -1,12 +1,8 @@
-# some_file.py
-import sys
-# caution: path[0] is reserved for script path (or '' in REPL)
-sys.path.insert(1, '../')
-
-import .agent as agent
 import numpy as np 
 
-class RandomAgent(agent.Agent): 
+from .agent import Agent
+
+class RandomAgent(Agent): 
     def __init__(self, agent_id, n_actions): 
         """
         Initialize a random agent.

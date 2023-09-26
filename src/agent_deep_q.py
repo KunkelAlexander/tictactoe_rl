@@ -1,19 +1,16 @@
-# some_file.py
-import sys
-# caution: path[0] is reserved for script path (or '' in REPL)
-sys.path.insert(1, '../')
 
-import .agent as agent
+import os 
+import random 
 import numpy as np 
+from collections import deque
 
 import tensorflow as tf
 from tensorflow import keras
-from collections import deque
-import random 
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint  # Import ModelCheckpoint callback
 from tensorflow.keras import layers, models
-import os 
-from util import decimal_to_base
+
+from .agent import Agent
+from .util  import decimal_to_base
 
 # Define a directory to save checkpoints and logs
 checkpoint_dir = 'checkpoints'
@@ -126,7 +123,7 @@ def build_convolutional_dueling_dqn_model(input_shape, num_actions, reg_strength
 
 
 
-class DeepQAgent(agent.Agent): 
+class DeepQAgent(Agent): 
     MODE_BINARY   = 0 
     MODE_TUTORIAL = 1
 

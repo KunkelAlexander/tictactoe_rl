@@ -1,12 +1,10 @@
-import sys
-sys.path.insert(1, '../')
-
-import .agent as agent
 import numpy as np
-from util import decimal_to_base
 from tqdm import tqdm
 
-class MinMaxAgent(agent.Agent):
+from .agent import Agent
+from .util  import decimal_to_base
+
+class MinMaxAgent(Agent):
 
     outcomes = {
         "VICTORY": 1,

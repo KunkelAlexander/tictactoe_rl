@@ -1,10 +1,8 @@
-import sys
-sys.path.insert(1, '../')
-
-import .agent as agent
 import numpy as np
 
-class TabularQAgent(agent.Agent):
+from .agent import Agent
+
+class TabularQAgent(Agent):
     def __init__(self, agent_id: int, n_actions: int, n_states: int, config: dict):
         """
         Initialize a Q-learning agent with a Q-table.
