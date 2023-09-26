@@ -6,7 +6,7 @@ import os
 import errno
 from datetime import datetime
 
-from game_manager import GameManager
+from .game_manager import GameManager
 
 # Q-learning algorithm
 
@@ -87,31 +87,31 @@ class TrainingManager:
         agents = []
         for i, agent_type in enumerate(agent_types): 
             if agent_type == "RANDOM_AGENT":
-                from agents.random_agent import RandomAgent
+                from .agents.random_agent import RandomAgent
                 agents.append(RandomAgent  (agent_id=i+1, n_actions=9))
             elif agent_type == "TABULAR_Q_AGENT": 
-                from agents.tabular_q_agent import TabularQAgent
+                from .agents.tabular_q_agent import TabularQAgent
                 agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "SIMPLE_DEEP_Q_AGENT": 
-                from agents.deep_q_agent import SimpleDeepQAgent
+                from .agents.deep_q_agent import SimpleDeepQAgent
                 agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))       
             elif agent_type == "DUAL_DEEP_Q_AGENT": 
-                from agents.deep_q_agent import DualDeepQAgent
+                from .agents.deep_q_agent import DualDeepQAgent
                 agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))             
             elif agent_type == "PRIORITISED_SIMPLE_DEEP_Q_AGENT": 
-                from agents.deep_q_agent import PrioritisedSimpleDeepQAgent
+                from .agents.deep_q_agent import PrioritisedSimpleDeepQAgent
                 agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "DUELLING_DEEP_Q_AGENT": 
-                from agents.deep_q_agent import DuellingDeepQAgent
+                from .agents.deep_q_agent import DuellingDeepQAgent
                 agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "CONVOLUTIONAL_DUELLING_DEEP_Q_AGENT": 
-                from agents.deep_q_agent import ConvDuellingDeepQAgent
+                from .agents.deep_q_agent import ConvDuellingDeepQAgent
                 agents.append(ConvDuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "MINMAX_AGENT": 
-                from agents.minmax_agent import MinMaxAgent
+                from .agents.minmax_agent import MinMaxAgent
                 agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=False))            
             elif agent_type == "RANDOM_MINMAX_AGENT": 
-                from agents.minmax_agent import MinMaxAgent
+                from .agents.minmax_agent import MinMaxAgent
                 agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=True))
             else: 
                 raise ValueError(F"Unknown agent type: {agent_type}")

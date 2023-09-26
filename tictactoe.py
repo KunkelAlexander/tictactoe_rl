@@ -1,5 +1,5 @@
 import numpy as np
-from util import decimal_to_base
+from .util import decimal_to_base
 
 class TicTacToe:
     FIELD_EMPTY = 0

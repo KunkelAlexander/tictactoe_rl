@@ -1,7 +1,7 @@
 import sys
 sys.path.insert(1, '../')
 
-import agent as agent
+import .agent as agent
 import numpy as np
 
 class TabularQAgent(agent.Agent):

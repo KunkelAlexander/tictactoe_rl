@@ -1,7 +1,7 @@
 import sys
 sys.path.insert(1, '../')
 
-import agent as agent
+import .agent as agent
 import numpy as np
 from util import decimal_to_base
 from tqdm import tqdm
