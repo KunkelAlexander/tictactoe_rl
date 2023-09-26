@@ -95,13 +95,19 @@ class TrainingManager:
                 agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "SIMPLE_DEEP_Q_AGENT": 
                 from .agent_deep_q import SimpleDeepQAgent
-                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))       
+                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))  
+            elif agent_type == "CONVOLUTIONAL_DEEP_Q_AGENT": 
+                from .agent_deep_q import ConvolutionalDeepQAgent
+                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))      
             elif agent_type == "DUAL_DEEP_Q_AGENT": 
                 from .agent_deep_q import DualDeepQAgent
                 agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))             
             elif agent_type == "PRIORITISED_SIMPLE_DEEP_Q_AGENT": 
                 from .agent_deep_q import PrioritisedSimpleDeepQAgent
-                agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))    
+            elif agent_type == "PRIORITISED_CONVOLUTIONAL_DEEP_Q_AGENT": 
+                from .agent_deep_q import PrioritisedConvolutionalDeepQAgent
+                agents.append(PrioritisedConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
             elif agent_type == "DUELLING_DEEP_Q_AGENT": 
                 from .agent_deep_q import DuellingDeepQAgent
                 agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))

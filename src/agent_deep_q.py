@@ -39,6 +39,32 @@ def build_simple_dqn_model(input_shape, num_actions):
     # Create the model
     model = models.Model(inputs=inputs, outputs=outputs)
     return model
+
+# Define simple, convolutional model
+def build_convolutional_dqn_model(input_shape, num_actions):
+    """
+    Build a simple DQN (Deep Q-Network) model using convolutional layers.
+
+    :param input_shape: The shape of the input state.
+    :param num_actions: The number of available actions.
+    :return: A Keras model for the simple DQN.
+    """
+
+    # Input layer
+    inputs = tf.keras.layers.Input(shape=input_shape, name='input_state')
+
+    # Shared layers for both the value and advantage streams
+    conv_layer1   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(inputs)
+    conv_layer2   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer1)
+    conv_layer3   = tf.keras.layers.Conv2D(64, (3, 3),  data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
+    flatten       = tf.keras.layers.Flatten()(conv_layer3) 
+    
+    layer1  = tf.keras.layers.Dense(256, activation='relu')(flatten)
+    outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer1)
+
+    # Create the model
+    model = models.Model(inputs=inputs, outputs=outputs)
+    return model
     
 # Define the Dueling DQN model
 def build_dueling_dqn_model(input_shape, num_actions):
@@ -389,6 +415,25 @@ class SimpleDeepQAgent(DeepQAgent):
         # Compile the model
         self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
 
+class ConvolutionalDeepQAgent(DeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        # Define the Q-Network
+        self.online_model = build_convolutional_dqn_model(self.input_shape, self.n_actions)
+        self.target_model = self.online_model 
+
+        # Compile the model
+        self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
 
 class DualDeepQAgent(DeepQAgent): 
 
@@ -581,7 +626,7 @@ class SumTree:
         return self.n_entries
 
 
-class PrioritisedSimpleDeepQAgent(SimpleDeepQAgent): 
+class PrioritisedDeepQAgent(DeepQAgent): 
 
     def __init__(self, agent_id, n_actions, n_states, config): 
         """
@@ -594,7 +639,6 @@ class PrioritisedSimpleDeepQAgent(SimpleDeepQAgent):
         """
         super().__init__(agent_id, n_actions, n_states, config) 
 
-        print("Creating prioritised experience replay buffer")
         self.alpha = 0.6
         self.beta  = 0.4
         self.epsilon = 1e-6
@@ -662,3 +706,44 @@ class PrioritisedSimpleDeepQAgent(SimpleDeepQAgent):
             self.exploration *= self.exploration_decay
 
         self.episode += 1
+
+
+class PrioritisedSimpleDeepQAgent(PrioritisedDeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        # Define the Q-Network
+        self.online_model = build_simple_dqn_model(self.input_shape, self.n_actions)
+        self.target_model = self.online_model 
+
+        # Compile the model
+        self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
+
+class PrioritisedConvolutionalDeepQAgent(PrioritisedDeepQAgent): 
+
+    def __init__(self, agent_id, n_actions, n_states, config): 
+        """
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        super().__init__(agent_id, n_actions, n_states, config) 
+
+        # Define the Q-Network
+        self.online_model = build_convolutional_dqn_model(self.input_shape, self.n_actions)
+        self.target_model = self.online_model 
+
+        # Compile the model
+        self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
