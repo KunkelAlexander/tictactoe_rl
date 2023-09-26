@@ -98,7 +98,7 @@ class TrainingManager:
                 agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))  
             elif agent_type == "CONVOLUTIONAL_DEEP_Q_AGENT": 
                 from .agent_deep_q import ConvolutionalDeepQAgent
-                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))      
+                agents.append(ConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))      
             elif agent_type == "DUAL_DEEP_Q_AGENT": 
                 from .agent_deep_q import DualDeepQAgent
                 agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))             

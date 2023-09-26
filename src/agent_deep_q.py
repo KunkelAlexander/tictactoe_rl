@@ -428,6 +428,11 @@ class ConvolutionalDeepQAgent(DeepQAgent):
         """
         super().__init__(agent_id, n_actions, n_states, config) 
 
+        if self.input_mode != self.MODE_TUTORIAL:
+            raise ValueError("Only input in MODE_TUTORIAL (one-hot) supported in convolutional network")
+        
+        self.input_shape = (3, 3, 3)
+
         # Define the Q-Network
         self.online_model = build_convolutional_dqn_model(self.input_shape, self.n_actions)
         self.target_model = self.online_model 
@@ -435,6 +440,13 @@ class ConvolutionalDeepQAgent(DeepQAgent):
         # Compile the model
         self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
 
+    def state_to_input(self, state):
+        # Convert to NHWC (batch size, height, width, number of channels)
+        input = super().state_to_input(state)
+        input = tf.reshape(input, (1, 3, 3, 3))
+        input = tf.transpose(input, [0,2,3,1])
+        return input
+    
 class DualDeepQAgent(DeepQAgent): 
 
     def __init__(self, agent_id, n_actions, n_states, config): 
@@ -741,9 +753,21 @@ class PrioritisedConvolutionalDeepQAgent(PrioritisedDeepQAgent):
         """
         super().__init__(agent_id, n_actions, n_states, config) 
 
+        if self.input_mode != self.MODE_TUTORIAL:
+            raise ValueError("Only input in MODE_TUTORIAL (one-hot) supported in convolutional network")
+        
+        self.input_shape = (3, 3, 3)
+
         # Define the Q-Network
         self.online_model = build_convolutional_dqn_model(self.input_shape, self.n_actions)
         self.target_model = self.online_model 
 
         # Compile the model
         self.online_model.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate), loss='mse')
+
+    def state_to_input(self, state):
+        # Convert to NHWC (batch size, height, width, number of channels)
+        input = super().state_to_input(state)
+        input = tf.reshape(input, (1, 3, 3, 3))
+        input = tf.transpose(input, [0,2,3,1])
+        return input
