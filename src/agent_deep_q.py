@@ -82,11 +82,9 @@ def build_dueling_dqn_model(input_shape, num_actions):
     dense = keras.layers.Dense(256, activation='relu')(inputs)
 
     # Value stream
-    #value_stream = keras.layers.Dense(32, activation='relu')(dense)
-    value    = tf.keras.layers.Dense(1, activation='relu')(dense)
+    value     = tf.keras.layers.Dense(1, activation='relu')(dense)
 
     # Advantage stream
-    #advantage_stream = keras.layers.Dense(32, activation='relu')(dense)
     advantage = tf.keras.layers.Dense(num_actions, activation='relu')(dense)
 
     # Combine value and advantage streams to get Q-values
@@ -141,7 +139,7 @@ def build_convolutional_dueling_dqn_model(input_shape, num_actions, reg_strength
                                        activation='relu')(advantage_stream)
 
     # Combine value and advantage streams to get Q-values
-    Q_values = value + (advantage - tf.math.reduce_mean(advantage, axis=1, keepdims=True))
+    Q_values = value + tf.math.subtract(advantage, tf.math.reduce_mean(advantage, axis=1, keepdims=True))
 
     # Create the model
     model = models.Model(inputs=inputs, outputs=Q_values)
@@ -771,3 +769,42 @@ class PrioritisedConvolutionalDeepQAgent(PrioritisedDeepQAgent):
         input = tf.reshape(input, (1, 3, 3, 3))
         input = tf.transpose(input, [0,2,3,1])
         return input
+
+
+class PrioritisedDuellingConvolutionalDeepQAgent(PrioritisedDeepQAgent):
+
+    def __init__(self, agent_id, n_actions, n_states, config):
+        """
+        A Q-learning agent with a simple dense neural network for Q-value approximation.
+
+        :param agent_id:            The ID of the agent.
+        :param n_actions:           The number of available actions.
+        :param n_states:            The number of states in the environment.
+        :param config:              A dictionary containing configuration parameters.
+        """
+        super().__init__(agent_id, n_actions, n_states, config)
+
+        if self.input_mode != self.MODE_TUTORIAL:
+            raise ValueError("Only input in MODE_TUTORIAL (one-hot) supported in convolutional network")
+
+        self.input_shape = (3, 3, 3)
+
+        reg_strength = 0.01
+
+        # Create the online Dueling DQN model
+        self.online_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions, reg_strength=reg_strength)
+
+        # Create the target Dueling DQN model
+        self.target_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions, reg_strength=reg_strength)
+        self.target_model.set_weights(self.online_model.get_weights())
+
+
+        # Define a custom loss function that includes regularization
+        def loss(y_true, y_pred):
+            mse_loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
+            reg_loss = reg_strength * sum(self.online_model.losses)  # Sum of all regularization losses
+            return mse_loss + reg_loss
+
+        # Compile the online model
+        self.online_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
+                                  loss=loss)
