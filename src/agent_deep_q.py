@@ -82,12 +82,12 @@ def build_dueling_dqn_model(input_shape, num_actions):
     dense = keras.layers.Dense(256, activation='relu')(inputs)
 
     # Value stream
-    value_stream = keras.layers.Dense(32, activation='relu')(dense)
-    value        = tf.keras.layers.Dense(1, activation='relu')(value_stream)
+    #value_stream = keras.layers.Dense(32, activation='relu')(dense)
+    value        = tf.keras.layers.Dense(1, activation='relu')(dense)
 
     # Advantage stream    
-    advantage_stream = keras.layers.Dense(32, activation='relu')(dense)
-    advantage        = tf.keras.layers.Dense(num_actions, activation='relu')(advantage_stream)
+    #advantage_stream = keras.layers.Dense(32, activation='relu')(dense)
+    advantage        = tf.keras.layers.Dense(num_actions, activation='relu')(dense)
 
     # Combine value and advantage streams to get Q-values
     Q_values = value + (advantage - tf.math.reduce_mean(advantage, axis=1, keepdims=True))
@@ -492,7 +492,7 @@ class DuellingDeepQAgent(DeepQAgent):
 
         # Compile the online model
         self.online_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
-                                  loss='mean_squared_error')
+                                  loss='mse')
         
 
 
