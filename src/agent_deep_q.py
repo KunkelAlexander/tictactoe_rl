@@ -179,7 +179,7 @@ class DeepQAgent(Agent):
         self.target_update_tau   = config["target_update_tau"]
         self.debug               = config["debug"]
         self.episode             = 0
-        self.training_buffer     = []
+        self.training_data       = []
 
         self.replay_buffer       = deque(maxlen=self.replay_buffer_size)
 
@@ -237,7 +237,7 @@ class DeepQAgent(Agent):
         :param reward: The final observed reward.
         """
         super().final_update(reward)
-        
+
         if self.is_training:
             self.training_data[-1][self.DONE]    = True
             self.training_data[-1][self.REWARD] += reward
@@ -299,7 +299,7 @@ class DeepQAgent(Agent):
                 next_state = 0
             self.replay_buffer.append([state, legal_actions, action, next_state, reward, done])
 
-        self.is_training = []
+        self.training_data = []
 
     def minibatch_to_arrays(self, minibatch):
         """
@@ -372,9 +372,6 @@ class DeepQAgent(Agent):
         """
         Train the agent's Q-network using experiences from the replay buffer.
         """
-
-        if not self.is_training:
-            return
 
         # Sample a random minibatch from the replay replay_buffer
         if len(self.replay_buffer) >= self.batch_size:

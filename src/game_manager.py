@@ -48,7 +48,6 @@ class GameManager:
 
         for agent in self.agents:
             agent.start_game(do_training=do_training)
-            agent.training_data = []
 
         # Randomize starting order in every game
         if randomise_order:
