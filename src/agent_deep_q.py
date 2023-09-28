@@ -172,6 +172,7 @@ class DeepQAgent(Agent):
         self.replay_buffer_size  = config["replay_buffer_size"]
         self.n_eval              = config["n_eval"]
         self.target_update_freq  = config["target_update_freq"]
+        self.target_update_tau   = config["target_update_tau"]
         self.update_counter      = 0
         self.episode             = 0
         self.debug               = False
@@ -340,6 +341,22 @@ class DeepQAgent(Agent):
 
         return action
 
+
+    def update_target_weights(self, tau):
+        """
+        Update the weights of the target network according to
+        target_weight = (1 - tau) * online_weight + tau * target_weight
+        """
+        online_weights = self.online_model.get_weights()
+        target_weights = self.target_model.get_weights()
+
+        new_target_weights = [
+            (1 - tau) * online_weight + tau * target_weight
+            for online_weight, target_weight in zip(online_weights, target_weights)
+        ]
+
+        self.target_model.set_weights(new_target_weights)
+
     def train(self):
         """
         Train the agent's Q-network using experiences from the replay buffer.
@@ -367,8 +384,7 @@ class DeepQAgent(Agent):
 
             # Update the target network periodically
             self.update_counter += 1
-            if self.update_counter % self.target_update_freq == 0:
-                self.target_model.set_weights(self.online_model.get_weights())
+            self.update_target_weights(self.target_update_tau)
 
             # Debugging: Print training progress
             if self.episode % self.n_eval == 0:
