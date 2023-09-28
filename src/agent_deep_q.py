@@ -112,31 +112,14 @@ def build_convolutional_dueling_dqn_model(input_shape, num_actions, reg_strength
     conv_layer2   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer1)
     conv_layer3   = tf.keras.layers.Conv2D(64, (3, 3),  data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
     flatten       = tf.keras.layers.Flatten()(conv_layer3)
-    shared_layer  = tf.keras.layers.Dense(256,
-                                          kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                                          kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
-                                          activation='relu')(flatten)
+    shared_layer  = tf.keras.layers.Dense(256, activation='relu')(flatten)
 
 
     # Value stream
-    value_stream = keras.layers.Dense( 32,
-                                       kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                                       kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
-                                       activation='relu')(shared_layer)
-    value = tf.keras.layers.Dense( 1,
-                                   kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                                   kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
-                                   activation='relu')(value_stream)
+    value = tf.keras.layers.Dense(1, activation='relu')(shared_layer)
 
     # Advantage stream
-    advantage_stream = keras.layers.Dense( 32,
-                                           kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                                           kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
-                                           activation='relu')(shared_layer)
-    advantage = tf.keras.layers.Dense( num_actions,
-                                       kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                                       kernel_regularizer=tf.keras.regularizers.L1L2(l1=reg_strength, l2=reg_strength),
-                                       activation='relu')(advantage_stream)
+    advantage = tf.keras.layers.Dense(num_actions, activation='relu')(shared_layer)
 
     # Combine value and advantage streams to get Q-values
     Q_values = value + tf.math.subtract(advantage, tf.math.reduce_mean(advantage, axis=1, keepdims=True))
@@ -524,16 +507,9 @@ class ConvDuellingDeepQAgent(DeepQAgent):
         self.target_model = build_convolutional_dueling_dqn_model(self.input_shape, self.n_actions, reg_strength=reg_strength)
         self.target_model.set_weights(self.online_model.get_weights())
 
-
-        # Define a custom loss function that includes regularization
-        def loss(y_true, y_pred):
-            mse_loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
-            reg_loss = reg_strength * sum(self.online_model.losses)  # Sum of all regularization losses
-            return mse_loss + reg_loss
-
         # Compile the online model
         self.online_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
-                                  loss=loss)
+                                  loss="mse")
 
 
     def state_to_input(self, state):
