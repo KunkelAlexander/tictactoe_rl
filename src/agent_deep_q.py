@@ -151,6 +151,7 @@ class DeepQAgent(Agent):
                                     - 'learning_rate_decay': The learning rate decay factor.
                                     - 'exploration': The exploration rate (epsilon).
                                     - 'exploration_decay': The exploration rate decay factor.
+                                    - 'exploration_min': Minimum exploration rate.
                                     - 'batch_size': The batch size for training.
                                     - 'replay_buffer_size': The size of the replay buffer.
                                     - 'target_update_freq': The frequency of updating the target network.
@@ -169,12 +170,12 @@ class DeepQAgent(Agent):
         self.learning_rate_decay = config["learning_rate_decay"]
         self.exploration         = config["exploration"]
         self.exploration_decay   = config["exploration_decay"]
+        self.exploration_min     = config["exploration_min"]
         self.batch_size          = config["batch_size"]
         self.replay_buffer_size  = config["replay_buffer_size"]
         self.n_eval              = config["n_eval"]
         self.target_update_freq  = config["target_update_freq"]
         self.target_update_tau   = config["target_update_tau"]
-        self.update_counter      = 0
         self.episode             = 0
         self.debug               = False
         self.training_buffer     = []
@@ -338,7 +339,7 @@ class DeepQAgent(Agent):
                 print(f"Pick action {action} in state {state} with q-values {q[action], q}")
 
         # Decrease exploration rate
-        self.exploration   *= self.exploration_decay
+        self.exploration = np.min(self.exploration * self.exploration_decay, self.exploration_min)
 
         return action
 
@@ -383,8 +384,7 @@ class DeepQAgent(Agent):
 
             history = self.online_model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard])
 
-            # Update the target network periodically
-            self.update_counter += 1
+            # Update the target network
             self.update_target_weights(self.target_update_tau)
 
             # Debugging: Print training progress
@@ -701,12 +701,10 @@ class PrioritisedDeepQAgent(DeepQAgent):
             history = self.online_model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard], sample_weight=weights)
 
             # Update the target network periodically
-            self.update_counter += 1
-            if self.update_counter % self.target_update_freq == 0:
-                self.target_model.set_weights(self.online_model.get_weights())
+            self.update_target_weights(self.target_update_tau)
 
-            # Decrease learning and exploration rates
-            self.exploration *= self.exploration_decay
+            # Decrease exploration rate
+            self.exploration = np.min(self.exploration * self.exploration_decay, self.exploration_min)
 
         self.episode += 1
 
