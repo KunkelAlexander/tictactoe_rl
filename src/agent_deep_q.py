@@ -154,6 +154,7 @@ class DeepQAgent(Agent):
                                     - 'batch_size': The batch size for training.
                                     - 'replay_buffer_size': The size of the replay buffer.
                                     - 'target_update_freq': The frequency of updating the target network.
+                                    - 'target_update_tau':  The weighting between online and target network for updating the target network.
         """
         super().__init__(agent_id, n_actions)
         self.n_states            = n_states
