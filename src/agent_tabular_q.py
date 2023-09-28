@@ -1,5 +1,7 @@
 import numpy as np
 
+from collections import deque
+
 from .agent import Agent
 
 class TabularQAgent(Agent):
@@ -13,17 +15,21 @@ class TabularQAgent(Agent):
         :param config: A dictionary containing agent configuration parameters.
         """
         super().__init__(agent_id, n_actions)
-        self.n_states = n_states
-        self.initial_q = config["initial_q"]
-        self.q = self.initial_q * np.ones((n_states, n_actions))
-        self.discount = config["discount"]
-        self.learning_rate = config["learning_rate"]
+        self.n_states            = n_states
+        self.initial_q           = config["initial_q"]
+        self.q                   = self.initial_q * np.ones((n_states, n_actions))
+        self.train_freq          = config["train_freq"]
+        self.discount            = config["discount"]
+        self.learning_rate       = config["learning_rate"]
         self.learning_rate_decay = config["learning_rate_decay"]
-        self.exploration = config["exploration"]
-        self.exploration_decay = config["exploration_decay"]
-        self.debug = config["debug"]
-        self.name = f"table-q agent {agent_id}"
-        self.training_data = []
+        self.exploration         = config["exploration"]
+        self.exploration_decay   = config["exploration_decay"]
+        self.exploration_min     = config["exploration_min"]
+        self.replay_buffer_size  = config["replay_buffer_size"]
+        self.debug               = config["debug"]
+        self.name                = f"table-q agent {agent_id}"
+        self.training_data       = []
+        self.training_episodes   = deque(maxlen=self.train_freq)
 
     def start_game(self, do_training: bool):
         """
@@ -53,8 +59,12 @@ class TabularQAgent(Agent):
             best_actions = np.argwhere(self.q[state] == np.max(self.q[state]))
             action = np.random.choice(best_actions.flatten())
 
+        # Decrease exploration rate
+        self.exploration = np.min([self.exploration * self.exploration_decay, self.exploration_min])
+
         if self.debug:
             print(f"Pick action {action} in state {state} with q-values {self.q[state]}")
+
         return action
 
     def update(self, iteration, state, legal_actions, action, reward, done):
@@ -79,9 +89,27 @@ class TabularQAgent(Agent):
         :param reward: The observed reward.
         """
         super().final_update(reward)
+
         if self.is_training:
             self.training_data[-1][self.DONE] = True
             self.training_data[-1][self.REWARD] += reward
+
+            self.validate_training_data()
+
+            self.training_episodes.append(self.training_data)
+            self.training_data = []
+
+    def validate_training_data(self):
+        """
+        Validate the integrity of training data, checking for missing iterations and incomplete episodes.
+        """
+
+        for i in range(len(self.training_data) - 1):
+            # Validate iteration number
+            i1 = self.training_data[i][self.ITERATION]
+            i2 = self.training_data[i+1][self.ITERATION]
+            if (i1 + 1 != i2):
+                raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
 
     def train(self):
         """
@@ -92,35 +120,26 @@ class TabularQAgent(Agent):
 
         next_max = None
 
-        # Check integrity of training data
-        if self.training_data[-1][self.DONE] is not True:
-            raise ValueError("Last training datum not done")
-
         next_iteration = 0
         next_state = 0
 
-        for i in range(len(self.training_data) - 1):
-            # Validate iteration number
-            i1 = self.training_data[i][self.ITERATION]
-            i2 = self.training_data[i+1][self.ITERATION]
-            if (i1 + 1 != i2):
-                raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
+        for data in self.training_episodes:
+            for iteration, state, legal_actions, action, reward, done in reversed(data):
+                if self.debug:
+                    print(f"Iter {iteration}: q-value in state {state} before update: {self.q[state]} with reward {reward} and Game Over = {done}")
 
-        for iteration, state, legal_actions, action, reward, done in reversed(self.training_data):
-            if self.debug:
-                print(f"Iter {iteration}: q-value in state {state} before update: {self.q[state]} with reward {reward} and Game Over = {done}")
+                # Q-learning update rule
+                if done:
+                    self.q[state][action] = reward
+                else:
+                    self.q[state][action] += self.learning_rate * (reward + self.discount * next_max - self.q[state][action])
 
-            # Q-learning update rule
-            if done:
-                self.q[state][action] = reward
-            else:
-                self.q[state][action] += self.learning_rate * (reward + self.discount * next_max - self.q[state][action])
+                next_max = np.max(self.q[state])
 
-            next_max = np.max(self.q[state])
+                if self.debug:
+                    print(f"q-value in state {state} after update: {self.q[state]}")
 
-            if self.debug:
-                print(f"q-value in state {state} after update: {self.q[state]}")
+            self.learning_rate *= self.learning_rate_decay
 
-        # Decrease learning and exploration rates
-        self.exploration *= self.exploration_decay
-        self.learning_rate *= self.learning_rate_decay
+        # delete training episodes after training
+        self.training_episodes = []

@@ -80,7 +80,6 @@ class GameManager:
             game_events = [self.game.evaluate_game_state(agent.agent_id)]
             reward = self.events_to_reward(game_events)
             agent.final_update(reward)
-            agent.train()
 
         return [(agent.agent_id, self.game.evaluate_game_state(agent.agent_id), agent.cumulative_reward) for agent in self.agents]
 

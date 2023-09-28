@@ -38,7 +38,7 @@ class TrainingManager:
 
         return draws, did_agent_win, cum_rewards
 
-    def evaluate_agents(self, agents, n_eval, randomise_order, only_legal_actions):
+    def evaluate_agents(self, agents, n_eval, randomise_order, only_legal_actions, debug):
         eval_outputs = []
         for evaluation_episode in range(n_eval):
             game_manager = GameManager(game = self.game, agents = agents, gui = None)
@@ -51,10 +51,11 @@ class TrainingManager:
         victory_rates   = [np.sum(did_agent_win[i, :])/n_eval for i in range(len(agents))]
         avg_cum_rewards = [np.sum(cum_rewards[i, :])/n_eval for i in range(len(agents))]
 
-        print(f"Evaluation on {n_eval} episode: {draw_rate}", end = "")
-        for i in range(len(agents)):
-            print(f":{victory_rates[i]}", end="")
-        print("")
+        if debug:
+            print(f"Evaluation on {n_eval} episode: {draw_rate}", end = "")
+            for i in range(len(agents)):
+                print(f":{victory_rates[i]}", end="")
+            print("")
 
         return draw_rate, victory_rates, avg_cum_rewards
 
@@ -72,14 +73,7 @@ class TrainingManager:
         n_episode           = config["n_episode"]
         n_eval              = config["n_eval"]
         eval_freq           = config["eval_freq"]
-        discount            = config["discount"]
-        learning_rate_decay = config["learning_rate_decay"]
-        exploration_decay   = config["exploration_decay"]
-        exploration         = config["exploration"]
-        batch_size          = config["batch_size"]
-        replay_buffer_size  = config["replay_buffer_size"]
-        learning_rate       = config["learning_rate"]
-        target_update_freq  = config["target_update_freq"]
+        train_freq          = config["train_freq"]
         randomise_order     = config["randomise_order"]
         only_legal_actions  = config["only_legal_actions"]
         debug               = config["debug"]
@@ -123,14 +117,17 @@ class TrainingManager:
                 raise ValueError(F"Unknown agent type: {agent_type}")
 
         outputs = []
-        print("episode")
 
         for episode in tqdm(range(n_episode)):
             game_manager = GameManager(game = self.game, agents = agents, gui = None)
             game_manager.run_game(do_training=True, randomise_order = randomise_order, only_legal_actions=only_legal_actions, debug=debug)
 
+            if episode % train_freq == 0:
+                for agent in agents:
+                    agent.train()
+
             if episode % eval_freq == 0:
-                output = self.evaluate_agents(agents = agents, n_eval = n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions)
+                output = self.evaluate_agents(agents = agents, n_eval = n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions, debug=debug)
                 outputs.append((episode, output))
 
         mydir = os.path.join(
@@ -146,14 +143,7 @@ class TrainingManager:
 
 
         with open(mydir + "/training_information.txt", 'w') as f:
-            print(f'agent_types         = {agent_types}',         file=f)
-            print(f'n_episode           = {n_episode}',           file=f)
-            print(f'discount            = {discount}',            file=f)
-            print(f'learning_rate       = {learning_rate}',       file=f)
-            print(f'learning_rate_decay = {learning_rate_decay}', file=f)
-            print(f'exploration         = {exploration}',         file=f)
-            print(f'exploration_decay   = {exploration_decay}',   file=f)
-            print(f'randmomise_order    = {randomise_order}',     file=f)
+            print(config, file=f)
 
         episodes        = np.zeros(len(outputs))
         draw_rates      = np.zeros(len(outputs))

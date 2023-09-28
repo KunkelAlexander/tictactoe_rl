@@ -131,8 +131,11 @@ def build_convolutional_dueling_dqn_model(input_shape, num_actions, reg_strength
 
 
 class DeepQAgent(Agent):
-    MODE_BINARY   = 0
-    MODE_TUTORIAL = 1
+    # encoding of feature vector
+    MODE_BINARY   = 0 # convert tictactoe board that can be considered as 9-digit base 3-number to base 2-number
+    MODE_TUTORIAL = 1 # use one-hot encoding and convert board to three boolean arrays of size 9 respectively indicating empty fields, crosses and naughts
+
+    LARGE_NEGATIVE_NUMBER = -1e6
 
     def __init__(self, agent_id, n_actions, n_states, config):
         """
@@ -154,7 +157,6 @@ class DeepQAgent(Agent):
                                     - 'exploration_min': Minimum exploration rate.
                                     - 'batch_size': The batch size for training.
                                     - 'replay_buffer_size': The size of the replay buffer.
-                                    - 'target_update_freq': The frequency of updating the target network.
                                     - 'target_update_tau':  The weighting between online and target network for updating the target network.
         """
         super().__init__(agent_id, n_actions)
@@ -174,13 +176,14 @@ class DeepQAgent(Agent):
         self.batch_size          = config["batch_size"]
         self.replay_buffer_size  = config["replay_buffer_size"]
         self.n_eval              = config["n_eval"]
-        self.target_update_freq  = config["target_update_freq"]
         self.target_update_tau   = config["target_update_tau"]
+        self.debug               = config["debug"]
         self.episode             = 0
-        self.debug               = False
         self.training_buffer     = []
 
         self.replay_buffer       = deque(maxlen=self.replay_buffer_size)
+
+        # choose encoding of feature vector
         self.input_mode          = self.MODE_TUTORIAL
         if self.input_mode == self.MODE_BINARY:
             self.input_shape     = (len(self.state_to_input(self.n_states -1)), )
@@ -234,9 +237,13 @@ class DeepQAgent(Agent):
         :param reward: The final observed reward.
         """
         super().final_update(reward)
+        
         if self.is_training:
             self.training_data[-1][self.DONE]    = True
             self.training_data[-1][self.REWARD] += reward
+
+            self.validate_training_data()
+            self.move_training_data_to_replay_buffer()
 
     def state_to_input(self, state):
         """
@@ -282,7 +289,6 @@ class DeepQAgent(Agent):
         """
         Move training data to the replay buffer, connecting states with their subsequent states.
         """
-        self.validate_training_data()
 
         # Connect state with next state and move to replay buffer
         for i in range(len(self.training_data)):
@@ -291,7 +297,7 @@ class DeepQAgent(Agent):
                 next_state = self.training_data[i+1][self.STATE]
             else:
                 next_state = 0
-            self.replay_buffer.append([state, action, next_state, reward, done])
+            self.replay_buffer.append([state, legal_actions, action, next_state, reward, done])
 
         self.is_training = []
 
@@ -302,20 +308,22 @@ class DeepQAgent(Agent):
         :param minibatch: A minibatch of experiences.
         :return:          Tensors containing states, actions, next_states, rewards, and not_terminal flags.
         """
-        states       = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
-        actions      = np.zeros(len(minibatch), dtype=np.int32)
-        next_states  = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
-        rewards      = np.zeros(len(minibatch), dtype=np.float32)
-        not_terminal = np.zeros(len(minibatch), dtype=np.float32)
+        states        = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
+        legal_actions = np.zeros((len(minibatch),  self.n_actions  ), dtype=np.float32)
+        actions       = np.zeros( len(minibatch),                     dtype=np.int32  )
+        next_states   = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
+        rewards       = np.zeros( len(minibatch),                     dtype=np.float32)
+        not_terminal  = np.zeros( len(minibatch),                     dtype=np.float32)
 
-        for i, (s, a, s_, r, d) in enumerate(minibatch):
-            states      [i, :] = self.state_to_input(s)
-            actions     [i]    = a
-            next_states [i, :] = self.state_to_input(s_)
-            rewards     [i]    = r
-            not_terminal[i]    = 1 - d
+        for i, (s, l, a, s_, r, d) in enumerate(minibatch):
+            states        [i, :] = self.state_to_input(s)
+            legal_actions [i, l] = 1
+            actions       [i]    = a
+            next_states   [i, :] = self.state_to_input(s_)
+            rewards       [i]    = r
+            not_terminal  [i]    = 1 - d
 
-        return tf.convert_to_tensor(states), tf.convert_to_tensor(actions), tf.convert_to_tensor(next_states), tf.convert_to_tensor(rewards), tf.convert_to_tensor(not_terminal)
+        return tf.convert_to_tensor(states), tf.convert_to_tensor(legal_actions), tf.convert_to_tensor(actions), tf.convert_to_tensor(next_states), tf.convert_to_tensor(rewards), tf.convert_to_tensor(not_terminal)
 
     def act(self, state, actions):
         """
@@ -331,15 +339,16 @@ class DeepQAgent(Agent):
             action = np.random.choice(actions)
         # exploit
         else:
-            s = self.state_to_input(state)
-            q = self.online_model(s, training=False)
-            action = tf.argmax(q, axis=1)
-
-            if self.debug:
-                print(f"Pick action {action} in state {state} with q-values {q[action], q}")
+            s             = self.state_to_input(state)
+            q             = self.online_model(s, training=False)
+            mask          = np.zeros(self.n_actions, dtype=np.float32)
+            mask[actions] = 1
+            mask          = tf.convert_to_tensor(mask)
+            masked_q      = mask * q + (1 - mask) * self.LARGE_NEGATIVE_NUMBER
+            action        = tf.argmax(masked_q, axis=1)
 
         # Decrease exploration rate
-        self.exploration = np.min(self.exploration * self.exploration_decay, self.exploration_min)
+        self.exploration = np.min([self.exploration * self.exploration_decay, self.exploration_min])
 
         return action
 
@@ -367,20 +376,21 @@ class DeepQAgent(Agent):
         if not self.is_training:
             return
 
-        self.move_training_data_to_replay_buffer()
-
         # Sample a random minibatch from the replay replay_buffer
         if len(self.replay_buffer) >= self.batch_size:
 
             minibatch = random.sample(self.replay_buffer, self.batch_size)
-            states, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
+            states, legal_actions, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
 
-            targets      = self.online_model.predict_on_batch(states)
-            next_targets = self.target_model.predict_on_batch(next_states)
-            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(next_targets, axis=1)
+            targets        = self.online_model.predict_on_batch(states)
+            next_targets   = self.target_model.predict_on_batch(next_states)
 
-            if self.debug:
-                print(states, targets)
+            # Masking illegal actions in target Q-values
+            # Target-Q values for illegaion actions should not affect the loss function
+            # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online-model
+            masked_next_targets = legal_actions * next_targets + (1 - legal_actions) * self.LARGE_NEGATIVE_NUMBER
+
+            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(masked_next_targets, axis=1)
 
             history = self.online_model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard])
 
@@ -388,10 +398,10 @@ class DeepQAgent(Agent):
             self.update_target_weights(self.target_update_tau)
 
             # Debugging: Print training progress
-            if self.episode % self.n_eval == 0:
+            if self.debug and self.episode % self.n_eval == 0:
                 print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
 
-        self.episode       += 1
+            self.episode       += 1
 
 class SimpleDeepQAgent(DeepQAgent):
 
@@ -441,7 +451,7 @@ class ConvolutionalDeepQAgent(DeepQAgent):
     def state_to_input(self, state):
         # Convert to NHWC (batch size, height, width, number of channels)
         input = super().state_to_input(state)
-        input = tf.reshape(input, (1, 3, 3, 3))
+        input = tf.reshape(input, (1,3,3,3))
         input = tf.transpose(input, [0,2,3,1])
         return input
 
@@ -682,11 +692,17 @@ class PrioritisedDeepQAgent(DeepQAgent):
             # Sample a minibatch from the prioritized replay buffer
             minibatch, batch_indices, weights = self.replay_buffer.sample(self.batch_size)
 
-            states, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
+            states, legal_actions, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
 
             targets        = self.online_model.predict_on_batch(states)
             next_targets   = self.target_model.predict_on_batch(next_states)
-            target_updates = rewards + not_terminal * self.discount * np.max(next_targets, axis=1)
+
+            # Masking illegal actions in target Q-values
+            # Target-Q values for illegaion actions should not affect the loss function
+            # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online-model
+            masked_next_targets = legal_actions * next_targets + (1 - legal_actions) * self.LARGE_NEGATIVE_NUMBER
+
+            target_updates = rewards + not_terminal * self.discount * np.max(masked_next_targets, axis=1)
 
             # Update priorities in the replay buffer based on the TD error
             td_errors = np.abs(targets[np.arange(self.batch_size), actions] - target_updates)
@@ -705,6 +721,10 @@ class PrioritisedDeepQAgent(DeepQAgent):
 
             # Decrease exploration rate
             self.exploration = np.min(self.exploration * self.exploration_decay, self.exploration_min)
+
+            # Debugging: Print training progress
+            if self.debug and self.episode % self.n_eval == 0:
+                print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
 
         self.episode += 1
 
