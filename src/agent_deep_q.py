@@ -715,9 +715,6 @@ class PrioritisedDeepQAgent(DeepQAgent):
             # Update the target network periodically
             self.update_target_weights(self.target_update_tau)
 
-            # Decrease exploration rate
-            self.exploration = np.min(self.exploration * self.exploration_decay, self.exploration_min)
-
             # Debugging: Print training progress
             if self.debug and self.episode % self.n_eval == 0:
                 print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
