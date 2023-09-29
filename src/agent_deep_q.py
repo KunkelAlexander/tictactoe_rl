@@ -384,7 +384,7 @@ class DeepQAgent(Agent):
 
             # Masking illegal actions in target Q-values
             # Target-Q values for illegaion actions should not affect the loss function
-            # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online-model
+            # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online model
             masked_next_targets = legal_actions * next_targets + (1 - legal_actions) * self.LARGE_NEGATIVE_NUMBER
 
             targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(masked_next_targets, axis=1)
@@ -675,7 +675,7 @@ class PrioritisedDeepQAgent(DeepQAgent):
             priority = (td_error + self.epsilon) ** self.alpha
 
             # Add the experience and priority to the prioritized replay buffer
-            self.replay_buffer.add((state, action, next_state, reward, done), priority)
+            self.replay_buffer.add((state, legal_actions, action, next_state, reward, done), priority)
 
         self.training_data = []
 
