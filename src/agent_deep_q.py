@@ -655,8 +655,6 @@ class PrioritisedDeepQAgent(DeepQAgent):
         self.replay_buffer = PrioritizedReplayBuffer(maxlen=self.replay_buffer_size, alpha=0.6, beta = 0.4, epsilon=1e-6)
 
     def move_training_data_to_replay_buffer(self):
-        self.validate_training_data()
-
         for i in range(len(self.training_data)):
             iteration, state, legal_actions, action, reward, done = self.training_data[i]
             if not done:
@@ -679,11 +677,12 @@ class PrioritisedDeepQAgent(DeepQAgent):
             # Add the experience and priority to the prioritized replay buffer
             self.replay_buffer.add((state, action, next_state, reward, done), priority)
 
-    def train(self):
-        if not self.is_training:
-            return
+        self.training_data = []
 
-        self.move_training_data_to_replay_buffer()
+    def train(self):
+        """
+        Train the agent's Q-network using experiences from the prioritised replay buffer.
+        """
 
         if len(self.replay_buffer) >= self.batch_size:
             # Sample a minibatch from the prioritized replay buffer
@@ -723,7 +722,7 @@ class PrioritisedDeepQAgent(DeepQAgent):
             if self.debug and self.episode % self.n_eval == 0:
                 print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
 
-        self.episode += 1
+            self.episode += 1
 
 
 class PrioritisedSimpleDeepQAgent(PrioritisedDeepQAgent):
