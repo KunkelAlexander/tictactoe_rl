@@ -33,8 +33,14 @@ def build_simple_dqn_model(input_shape, num_actions):
     """
 
     inputs  = tf.keras.layers.Input(shape=input_shape)
-    layer1  = tf.keras.layers.Dense(256, activation='relu')(inputs)
-    outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer1)
+    layer1  = tf.keras.layers.Dense(20, activation='relu')(inputs)
+    layer2  = tf.keras.layers.Dense(20, activation='relu')(layer1)
+    layer3  = tf.keras.layers.Dense(20, activation='relu')(layer2)
+    layer4  = tf.keras.layers.Dense(20, activation='relu')(layer3)
+    layer5  = tf.keras.layers.Dense(20, activation='relu')(layer4)
+    layer6  = tf.keras.layers.Dense(20, activation='relu')(layer5)
+    layer7  = tf.keras.layers.Dense(20, activation='relu')(layer6)
+    outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer7)
 
     # Create the model
     model = models.Model(inputs=inputs, outputs=outputs)
@@ -56,7 +62,7 @@ def build_convolutional_dqn_model(input_shape, num_actions):
     # Shared layers for both the value and advantage streams
     conv_layer1   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(inputs)
     conv_layer2   = tf.keras.layers.Conv2D(128, (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer1)
-    conv_layer3   = tf.keras.layers.Conv2D(64, (3, 3),  data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
+    conv_layer3   = tf.keras.layers.Conv2D(64,  (3, 3), data_format="channels_last", activation='relu', padding="SAME")(conv_layer2)
     flatten       = tf.keras.layers.Flatten()(conv_layer3)
 
     layer1  = tf.keras.layers.Dense(256, activation='relu')(flatten)
