@@ -33,13 +33,13 @@ def build_simple_dqn_model(input_shape, num_actions):
     """
 
     inputs  = tf.keras.layers.Input(shape=input_shape)
-    layer1  = tf.keras.layers.Dense(20, activation='relu')(inputs)
-    layer2  = tf.keras.layers.Dense(20, activation='relu')(layer1)
-    layer3  = tf.keras.layers.Dense(20, activation='relu')(layer2)
-    layer4  = tf.keras.layers.Dense(20, activation='relu')(layer3)
-    layer5  = tf.keras.layers.Dense(20, activation='relu')(layer4)
-    layer6  = tf.keras.layers.Dense(20, activation='relu')(layer5)
-    layer7  = tf.keras.layers.Dense(20, activation='relu')(layer6)
+    layer1  = tf.keras.layers.Dense(64, activation='relu')(inputs)
+    layer2  = tf.keras.layers.Dense(64, activation='relu')(layer1)
+    layer3  = tf.keras.layers.Dense(64, activation='relu')(layer2)
+    layer4  = tf.keras.layers.Dense(64, activation='relu')(layer3)
+    layer5  = tf.keras.layers.Dense(64, activation='relu')(layer4)
+    layer6  = tf.keras.layers.Dense(64, activation='relu')(layer5)
+    layer7  = tf.keras.layers.Dense(64, activation='relu')(layer6)
     outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer7)
 
     # Create the model
