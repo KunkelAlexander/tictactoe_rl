@@ -59,7 +59,7 @@ class TrainingManager:
 
         return draw_rate, victory_rates, avg_cum_rewards
 
-    def run_training(self, config):
+    def run_training(self, config, agents=None):
         """
         Run training episodes of a game with multiple agents and collect statistics.
 
@@ -78,43 +78,44 @@ class TrainingManager:
         only_legal_actions  = config["only_legal_actions"]
         debug               = config["debug"]
 
-        agents = []
-        for i, agent_type in enumerate(agent_types):
-            if agent_type == "RANDOM_AGENT":
-                from .agent_random import RandomAgent
-                agents.append(RandomAgent  (agent_id=i+1, n_actions=9))
-            elif agent_type == "TABULAR_Q_AGENT":
-                from .agent_tabular_q import TabularQAgent
-                agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "SIMPLE_DEEP_Q_AGENT":
-                from .agent_deep_q import SimpleDeepQAgent
-                agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "CONVOLUTIONAL_DEEP_Q_AGENT":
-                from .agent_deep_q import ConvolutionalDeepQAgent
-                agents.append(ConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "DUAL_DEEP_Q_AGENT":
-                from .agent_deep_q import DualDeepQAgent
-                agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "PRIORITISED_SIMPLE_DEEP_Q_AGENT":
-                from .agent_deep_q import PrioritisedSimpleDeepQAgent
-                agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "PRIORITISED_CONVOLUTIONAL_DEEP_Q_AGENT":
-                from .agent_deep_q import PrioritisedConvolutionalDeepQAgent
-                agents.append(PrioritisedConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "DUELLING_DEEP_Q_AGENT":
-                from .agent_deep_q import DuellingDeepQAgent
-                agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "CONVOLUTIONAL_DUELLING_DEEP_Q_AGENT":
-                from .agent_deep_q import ConvDuellingDeepQAgent
-                agents.append(ConvDuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-            elif agent_type == "MINMAX_AGENT":
-                from .agent_minmax import MinMaxAgent
-                agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=False))
-            elif agent_type == "RANDOM_MINMAX_AGENT":
-                from .agent_minmax import MinMaxAgent
-                agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=True))
-            else:
-                raise ValueError(F"Unknown agent type: {agent_type}")
+        if agents is None:
+            agents = []
+            for i, agent_type in enumerate(agent_types):
+                if agent_type == "RANDOM_AGENT":
+                    from .agent_random import RandomAgent
+                    agents.append(RandomAgent  (agent_id=i+1, n_actions=9))
+                elif agent_type == "TABULAR_Q_AGENT":
+                    from .agent_tabular_q import TabularQAgent
+                    agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "SIMPLE_DEEP_Q_AGENT":
+                    from .agent_deep_q import SimpleDeepQAgent
+                    agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "CONVOLUTIONAL_DEEP_Q_AGENT":
+                    from .agent_deep_q import ConvolutionalDeepQAgent
+                    agents.append(ConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "DUAL_DEEP_Q_AGENT":
+                    from .agent_deep_q import DualDeepQAgent
+                    agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "PRIORITISED_SIMPLE_DEEP_Q_AGENT":
+                    from .agent_deep_q import PrioritisedSimpleDeepQAgent
+                    agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "PRIORITISED_CONVOLUTIONAL_DEEP_Q_AGENT":
+                    from .agent_deep_q import PrioritisedConvolutionalDeepQAgent
+                    agents.append(PrioritisedConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "DUELLING_DEEP_Q_AGENT":
+                    from .agent_deep_q import DuellingDeepQAgent
+                    agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "CONVOLUTIONAL_DUELLING_DEEP_Q_AGENT":
+                    from .agent_deep_q import ConvDuellingDeepQAgent
+                    agents.append(ConvDuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                elif agent_type == "MINMAX_AGENT":
+                    from .agent_minmax import MinMaxAgent
+                    agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=False))
+                elif agent_type == "RANDOM_MINMAX_AGENT":
+                    from .agent_minmax import MinMaxAgent
+                    agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=True))
+                else:
+                    raise ValueError(F"Unknown agent type: {agent_type}")
 
         outputs = []
 
@@ -177,6 +178,10 @@ class TrainingManager:
         plt.legend()
         plt.savefig(mydir + "/rewards.png")
         plt.close()
+
+        print("Draws: ", draw_rates)
+        print("Victories: ", victory_rates)
+        print("Avg. rewards: ", avg_cum_rewards)
 
         return agents, draw_rates, victory_rates, avg_cum_rewards
 
