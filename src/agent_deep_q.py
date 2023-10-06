@@ -33,14 +33,8 @@ def build_simple_dqn_model(input_shape, num_actions):
     """
 
     inputs  = tf.keras.layers.Input(shape=input_shape)
-    layer1  = tf.keras.layers.Dense(64, activation='relu')(inputs)
-    layer2  = tf.keras.layers.Dense(64, activation='relu')(layer1)
-    layer3  = tf.keras.layers.Dense(64, activation='relu')(layer2)
-    layer4  = tf.keras.layers.Dense(64, activation='relu')(layer3)
-    layer5  = tf.keras.layers.Dense(64, activation='relu')(layer4)
-    layer6  = tf.keras.layers.Dense(64, activation='relu')(layer5)
-    layer7  = tf.keras.layers.Dense(64, activation='relu')(layer6)
-    outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer7)
+    layer1  = tf.keras.layers.Dense(256, activation='relu')(inputs)
+    outputs = tf.keras.layers.Dense(num_actions, activation='linear')(layer1)
 
     # Create the model
     model = models.Model(inputs=inputs, outputs=outputs)
@@ -85,13 +79,15 @@ def build_dueling_dqn_model(input_shape, num_actions):
 
 
     # Shared layers for both the value and advantage streams
-    dense = keras.layers.Dense(256, activation='relu')(inputs)
+    dense = keras.layers.Dense(128, activation='relu')(inputs)
 
     # Value stream
-    value     = tf.keras.layers.Dense(1, activation='relu')(dense)
+    value1    = tf.keras.layers.Dense(128, activation='relu')(dense)
+    value     = tf.keras.layers.Dense(1, activation='relu')(value1)
 
     # Advantage stream
-    advantage = tf.keras.layers.Dense(num_actions, activation='relu')(dense)
+    advantage1 = tf.keras.layers.Dense(128, activation='relu')(dense)
+    advantage = tf.keras.layers.Dense(num_actions, activation='relu')(advantage1)
 
     # Combine value and advantage streams to get Q-values
     Q_values = value + tf.math.subtract(advantage, tf.math.reduce_mean(advantage, axis=1, keepdims=True))
