@@ -179,9 +179,5 @@ class TrainingManager:
         plt.savefig(mydir + "/rewards.png")
         plt.close()
 
-        print("Draws: ", draw_rates)
-        print("Victories: ", victory_rates)
-        print("Avg. rewards: ", avg_cum_rewards)
-
         return agents, draw_rates, victory_rates, avg_cum_rewards
 
