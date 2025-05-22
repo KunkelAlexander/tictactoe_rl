@@ -166,8 +166,8 @@ class TrainingManager:
         for i, agent in enumerate(agents):
             plt.plot(episodes, victory_rates[:, i], label=f"{agent.name} wins")
         plt.legend()
-        plt.show()
         plt.savefig(mydir + "/outcomes.png")
+        plt.show()
         plt.close()
 
         plt.title("Cumulative rewards")
