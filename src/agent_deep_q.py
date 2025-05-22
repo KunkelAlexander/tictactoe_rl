@@ -200,7 +200,7 @@ class DeepQAgent(Agent):
 
         # Create a ModelCheckpoint callback to save model checkpoints during training
         self.checkpoint_callback = ModelCheckpoint(
-            os.path.join(checkpoint_dir, 'model_weights_{epoch:02d}.h5'),
+            os.path.join(checkpoint_dir, 'model_weights_{epoch:02d}.weights.h5'),
             save_weights_only=True,
             save_best_only=False,
             save_freq=10  # Save every 10 epochs
