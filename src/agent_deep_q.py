@@ -215,6 +215,9 @@ class DeepQAgent(Agent):
         )
 
 
+        self._input_cache = {}
+
+
 
     def update(self, iteration, state, legal_actions, action, reward, done):
         """
@@ -254,6 +257,11 @@ class DeepQAgent(Agent):
         :param state: The current state.
         :return:      The input representation of the state.
         """
+
+        # Check cache
+        if state in self._input_cache:
+            return self._input_cache[state]
+
         if self.input_mode == self.MODE_TUTORIAL:
             n = 9
             base_array     = decimal_to_base(state, base = 3, padding = n)
@@ -270,7 +278,9 @@ class DeepQAgent(Agent):
         else:
             raise ValueError("Unsupported input mode")
 
-        return tf.convert_to_tensor(representation.reshape(1, -1))
+        tensor = tf.convert_to_tensor(representation.reshape(1, -1))
+        self._input_cache[state] = tensor
+        return tensor
 
     def validate_training_data(self):
         """
@@ -298,7 +308,7 @@ class DeepQAgent(Agent):
             if not done:
                 next_state = self.training_data[i+1][self.STATE]
             else:
-                next_state = 0
+                next_state = None
             self.replay_buffer.append([state, legal_actions, action, next_state, reward, done])
 
         self.training_data = []
@@ -348,9 +358,10 @@ class DeepQAgent(Agent):
             mask          = tf.convert_to_tensor(mask)
             masked_q      = mask * q + (1 - mask) * self.LARGE_NEGATIVE_NUMBER
             action        = tf.argmax(masked_q, axis=1)
+            action        = int(action.numpy()[0]) # Convert 1-element tensor to int
 
         # Decrease exploration rate
-        self.exploration = np.min([self.exploration * self.exploration_decay, self.exploration_min])
+        self.exploration = np.max([self.exploration * self.exploration_decay, self.exploration_min])
 
         return action
 
