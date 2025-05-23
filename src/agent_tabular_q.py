@@ -60,7 +60,7 @@ class TabularQAgent(Agent):
             action = np.random.choice(best_actions.flatten())
 
         # Decrease exploration rate
-        self.exploration = np.min([self.exploration * self.exploration_decay, self.exploration_min])
+        self.exploration = np.min([self.exploration * (1-self.exploration_decay), self.exploration_min])
 
         if self.debug:
             print(f"Pick action {action} in state {state} with q-values {self.q[state]}")
