@@ -13,7 +13,7 @@ from .game_manager import GameManager
 
 class TrainingManager:
 
-    def __init__(self, game, gui = None):
+    def __init__(self, game, gui=None):
         """
         Args:
             game (object): The game object representing the game state.
@@ -41,8 +41,8 @@ class TrainingManager:
     def evaluate_agents(self, agents, n_eval, randomise_order, only_legal_actions, debug):
         eval_outputs = []
         for evaluation_episode in range(n_eval):
-            game_manager = GameManager(game = self.game, agents = agents, gui = None)
-            output       = game_manager.run_game(do_training=False, randomise_order = randomise_order, only_legal_actions=only_legal_actions)
+            game_manager = GameManager(game=self.game, agents=agents, gui=None)
+            output       = game_manager.run_game(do_training=False, randomise_order=randomise_order, only_legal_actions=only_legal_actions)
             eval_outputs.append(output)
 
         draws, did_agent_win, cum_rewards = self.evaluate(eval_outputs, agents, n_eval)
@@ -52,7 +52,7 @@ class TrainingManager:
         avg_cum_rewards = [np.sum(cum_rewards[i, :])/n_eval for i in range(len(agents))]
 
         if debug:
-            print(f"Evaluation on {n_eval} episode: {draw_rate}", end = "")
+            print(f"Evaluation on {n_eval} episode: {draw_rate}", end="")
             for i in range(len(agents)):
                 print(f":{victory_rates[i]}", end="")
             print("")
@@ -86,28 +86,10 @@ class TrainingManager:
                     agents.append(RandomAgent  (agent_id=i+1, n_actions=9))
                 elif agent_type == "TABULAR_Q_AGENT":
                     from .agent_tabular_q import TabularQAgent
-                    agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "SIMPLE_DEEP_Q_AGENT":
-                    from .agent_deep_q import SimpleDeepQAgent
-                    agents.append(SimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "CONVOLUTIONAL_DEEP_Q_AGENT":
-                    from .agent_deep_q import ConvolutionalDeepQAgent
-                    agents.append(ConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "DUAL_DEEP_Q_AGENT":
-                    from .agent_deep_q import DualDeepQAgent
-                    agents.append(DualDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "PRIORITISED_SIMPLE_DEEP_Q_AGENT":
-                    from .agent_deep_q import PrioritisedSimpleDeepQAgent
-                    agents.append(PrioritisedSimpleDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "PRIORITISED_CONVOLUTIONAL_DEEP_Q_AGENT":
-                    from .agent_deep_q import PrioritisedConvolutionalDeepQAgent
-                    agents.append(PrioritisedConvolutionalDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "DUELLING_DEEP_Q_AGENT":
-                    from .agent_deep_q import DuellingDeepQAgent
-                    agents.append(DuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
-                elif agent_type == "CONVOLUTIONAL_DUELLING_DEEP_Q_AGENT":
-                    from .agent_deep_q import ConvDuellingDeepQAgent
-                    agents.append(ConvDuellingDeepQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config = config))
+                    agents.append(TabularQAgent(agent_id=i+1, n_actions=9, n_states=3**9, config=config))
+                elif agent_type == "SARSA_AGENT":
+                    from .agent_sarsa import SARSAAgent
+                    agents.append(SARSAAgent(agent_id=i+1, n_actions=9, n_states=3**9, config=config))
                 elif agent_type == "MINMAX_AGENT":
                     from .agent_minmax import MinMaxAgent
                     agents.append(MinMaxAgent(agent_id=i+1, n_actions=9, n_states=3**9, game=self.game, act_randomly=False))
@@ -120,15 +102,15 @@ class TrainingManager:
         outputs = []
 
         for episode in tqdm(range(n_episode)):
-            game_manager = GameManager(game = self.game, agents = agents, gui = None)
-            game_manager.run_game(do_training=True, randomise_order = randomise_order, only_legal_actions=only_legal_actions, debug=debug)
+            game_manager = GameManager(game=self.game, agents=agents, gui=None)
+            game_manager.run_game(do_training=True, randomise_order=randomise_order, only_legal_actions=only_legal_actions, debug=debug)
 
             if episode % train_freq == 0:
                 for agent in agents:
                     agent.train()
 
             if episode % eval_freq == 0:
-                output = self.evaluate_agents(agents = agents, n_eval = n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions, debug=debug)
+                output = self.evaluate_agents(agents=agents, n_eval=n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions, debug=debug)
                 outputs.append((episode, output))
 
         mydir = os.path.join(
