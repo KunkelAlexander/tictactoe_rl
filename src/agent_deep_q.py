@@ -3,6 +3,7 @@ import os
 import random
 import numpy as np
 from collections import deque
+from dataclasses import dataclass, field
 
 import tensorflow as tf
 from tensorflow import keras
@@ -11,6 +12,7 @@ from tensorflow.keras import layers, models
 
 from .agent import Agent
 from .util  import decimal_to_base
+
 
 # Define a directory to save checkpoints and logs
 checkpoint_dir = 'checkpoints'
@@ -130,6 +132,39 @@ def build_convolutional_dueling_dqn_model(input_shape, num_actions, reg_strength
     model = models.Model(inputs=inputs, outputs=Q_values)
     return model
 
+"""
+Dataclass containing agent configuration parameters.
+ - 'board_size': The size of the game board.
+ - 'n_episode': The total number of episodes for training.
+ - 'n_eval': The frequency of evaluation episodes.
+ - 'eval_freq': The evaluation frequency in episodes.
+ - 'discount': The discount factor (gamma).
+ - 'learning_rate': The learning rate (alpha).
+ - 'learning_rate_decay': The learning rate decay factor.
+ - 'exploration': The exploration rate (epsilon).
+ - 'exploration_decay': The exploration rate decay factor.
+ - 'exploration_min': Minimum exploration rate.
+ - 'batch_size': The batch size for training.
+ - 'replay_buffer_size': The size of the replay buffer.
+ - 'target_update_tau':  The weighting between online and target network for updating the target network.
+"""
+@dataclass
+class DQNConfig:
+    board_size:          int
+    n_episode:           int
+    n_eval:              int
+    eval_freq:           int
+    grad_steps:          int
+    discount:            float
+    learning_rate:       float
+    learning_rate_decay: float
+    exploration:         float
+    exploration_decay:   float
+    exploration_min:     float
+    batch_size:          int
+    replay_buffer_size:  int
+    target_update_tau:   float
+    debug:               bool = False           # default example
 
 
 class DeepQAgent(Agent):
@@ -139,6 +174,8 @@ class DeepQAgent(Agent):
 
     LARGE_NEGATIVE_NUMBER = -1e6
 
+    TERMINAL_STATE_ID = -1
+
     def __init__(self, agent_id, n_actions, n_states, config):
         """
         Initialize a Deep Q-Network (DQN) agent for reinforcement learning.
@@ -146,45 +183,23 @@ class DeepQAgent(Agent):
         :param agent_id:            The ID of the agent.
         :param n_actions:           The number of available actions.
         :param n_states:            The number of states in the environment.
-        :param config:              A dictionary containing agent configuration parameters.
-                                    - 'board_size': The size of the game board.
-                                    - 'n_episode': The total number of episodes for training.
-                                    - 'n_eval': The frequency of evaluation episodes.
-                                    - 'eval_freq': The evaluation frequency in episodes.
-                                    - 'discount': The discount factor (gamma).
-                                    - 'learning_rate': The learning rate (alpha).
-                                    - 'learning_rate_decay': The learning rate decay factor.
-                                    - 'exploration': The exploration rate (epsilon).
-                                    - 'exploration_decay': The exploration rate decay factor.
-                                    - 'exploration_min': Minimum exploration rate.
-                                    - 'batch_size': The batch size for training.
-                                    - 'replay_buffer_size': The size of the replay buffer.
-                                    - 'target_update_tau':  The weighting between online and target network for updating the target network.
+        :param config:              Dictionary with entries of DQNConfig
         """
+
         super().__init__(agent_id, n_actions)
         self.n_states            = n_states
 
-        self.name                = f"deep-q agent {agent_id}"
-        self.board_size          = config["board_size"]
-        self.n_episode           = config["n_episode"]
-        self.n_eval              = config["n_eval"]
-        self.eval_freq           = config["eval_freq"]
-        self.grad_steps          = config["grad_steps"]
-        self.discount            = config["discount"]
-        self.learning_rate       = config["learning_rate"]
-        self.learning_rate_decay = config["learning_rate_decay"]
-        self.exploration         = config["exploration"]
-        self.exploration_decay   = config["exploration_decay"]
-        self.exploration_min     = config["exploration_min"]
-        self.batch_size          = config["batch_size"]
-        self.replay_buffer_size  = config["replay_buffer_size"]
-        self.n_eval              = config["n_eval"]
-        self.target_update_tau   = config["target_update_tau"]
-        self.debug               = config["debug"]
-        self.episode             = 0
-        self.training_data       = []
+        self.name          = f"deep-q agent {agent_id}"
+        self.cfg           = DQNConfig(**config)   # raises TypeError if keys are missing/extraneous
 
-        self.replay_buffer       = deque(maxlen=self.replay_buffer_size)
+        # Set config entries as direct attributes
+        for k, v in vars(config).items():
+            setattr(self, k, v)
+
+        self.episode       = 0
+        self.training_data = []
+
+        self.replay_buffer = deque(maxlen=self.replay_buffer_size)
 
         # choose encoding of feature vector
         self.input_mode          = self.MODE_TUTORIAL
@@ -265,7 +280,9 @@ class DeepQAgent(Agent):
         if state in self._input_cache:
             return self._input_cache[state]
 
-        if self.input_mode == self.MODE_TUTORIAL:
+        if state == self.TERMINAL_STATE_ID:
+           representation = np.zeros(self.input_shape[0], dtype=np.float32)
+        elif self.input_mode == self.MODE_TUTORIAL:
             n = 9
             base_array     = decimal_to_base(state, base = 3, padding = n)
             representation = np.zeros(3 * n)
@@ -317,7 +334,7 @@ class DeepQAgent(Agent):
                 next_state = self.training_data[i+1][self.STATE]
                 next_legal_actions  = self.training_data[i+1][self.LEGAL_ACTIONS]
             else:
-                next_state = 0
+                next_state = self.TERMINAL_STATE_ID
                 next_legal_actions  = []              # no legal moves after terminal
             self.replay_buffer.append([state, legal_actions, action, next_state, next_legal_actions, reward, done])
 
@@ -340,10 +357,10 @@ class DeepQAgent(Agent):
         not_terminal        = np.zeros( B,                     dtype=np.float32)
 
         for i, (s, l, a, s_, l_, r, d) in enumerate(minibatch):
-            states        [i, :]       = self.state_to_input(s)
+            states        [i, :]       = self.state_to_input(s).numpy().ravel()
             legal_actions [i, l]       = 1
             actions       [i]          = a
-            next_states   [i, :]       = self.state_to_input(s_)
+            next_states   [i, :]       = self.state_to_input(s_).numpy().ravel()
             next_legal_actions [i, l_] = 1
             rewards       [i]          = r
             not_terminal  [i]          = 1 - d
@@ -411,13 +428,13 @@ class DeepQAgent(Agent):
     def update_target_weights(self, tau):
         """
         Update the weights of the target network according to
-        target_weight = (1 - tau) * online_weight + tau * target_weight
+        target_weight = (1 - tau) * target_weight + tau * online_weight
         """
         online_weights = self.online_model.get_weights()
         target_weights = self.target_model.get_weights()
 
         new_target_weights = [
-            (1 - tau) * online_weight + tau * target_weight
+            (1 - tau) * target_weight + tau * online_weight
             for online_weight, target_weight in zip(online_weights, target_weights)
         ]
 
@@ -448,20 +465,37 @@ class DeepQAgent(Agent):
             # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online model
             # BUT the Bellmann euqation reads gamma_t = r_t + gamma * max over actions in s_t+1 of Q(s_t+1)
             # Therefore the legal equations considered should be the legal actions in the state t+1, not t
-            masked_next_targets = next_legal_s * next_targets + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
 
-            targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(masked_next_targets, axis=1)
+            # 1.  Standard masking with a large negative number
+            masked_next = next_legal_s * next_targets + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
+
+
+            # ---- any legal action? ----
+            has_any_legal = tf.reduce_sum(next_legal_s, axis=1) > 0        # (B,) bool
+
+            # ---- max over a′ ----
+            q_next_max = tf.reduce_max(masked_next, axis=1)                # (B,)
+
+            # ---- zero-out rows with no legal moves ----
+            q_next_max = tf.where(has_any_legal, q_next_max, 0.0)
+
+            # ---- Bellman update (convert to NumPy so we can index) ----
+            q_next_max = q_next_max.numpy()
+
+
+            r  = rewards.numpy()
+            nt = not_terminal.numpy()
+            targets[np.arange(len(targets)), actions] = r + nt * self.discount * q_next_max
 
             loss = self.online_model.train_on_batch(states, targets)
-
-
-            # Update the target network
-            self.update_target_weights(self.target_update_tau)
 
             if not hasattr(self, 'tb_writer'):
                 self.tb_writer = tf.summary.create_file_writer(log_dir)
             with self.tb_writer.as_default():
                 tf.summary.scalar('loss', loss, step=self.episode)
+
+        # Update the target network
+        self.update_target_weights(self.target_update_tau)
 
         self.episode       += 1
 
