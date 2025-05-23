@@ -169,6 +169,7 @@ class DeepQAgent(Agent):
         self.n_episode           = config["n_episode"]
         self.n_eval              = config["n_eval"]
         self.eval_freq           = config["eval_freq"]
+        self.grad_steps          = config["grad_steps"]
         self.discount            = config["discount"]
         self.learning_rate       = config["learning_rate"]
         self.learning_rate_decay = config["learning_rate_decay"]
@@ -198,21 +199,23 @@ class DeepQAgent(Agent):
         self.online_model        = None
         self.target_model        = None
 
-        # Create a ModelCheckpoint callback to save model checkpoints during training
-        self.checkpoint_callback = ModelCheckpoint(
-            os.path.join(checkpoint_dir, 'model_weights_{epoch:02d}.weights.h5'),
-            save_weights_only=True,
-            save_best_only=False,
-            save_freq=10  # Save every 10 epochs
-        )
+        # Comment out since it is too slow
+        if False:
+            # Create a ModelCheckpoint callback to save model checkpoints during training
+            self.checkpoint_callback = ModelCheckpoint(
+                os.path.join(checkpoint_dir, 'model_weights_{epoch:02d}.weights.h5'),
+                save_weights_only=True,
+                save_best_only=False,
+                save_freq=100  # Save every 10 epochs
+            )
 
-        # Create a TensorBoard callback for logging
-        self.tensorboard = TensorBoard(
-            log_dir=log_dir,
-            histogram_freq=1,
-            write_graph=True,
-            write_images=True
-        )
+            # Create a TensorBoard callback for logging
+            self.tensorboard = TensorBoard(
+                log_dir=log_dir,
+                histogram_freq=100,
+                write_graph=True,
+                write_images=True
+            )
 
 
         self._input_cache = {}
@@ -278,7 +281,12 @@ class DeepQAgent(Agent):
         else:
             raise ValueError("Unsupported input mode")
 
-        tensor = tf.convert_to_tensor(representation.reshape(1, -1))
+        # force the dtype here
+        tensor = tf.convert_to_tensor(
+            representation.reshape(1, -1),
+            dtype=tf.float32
+        )
+
         self._input_cache[state] = tensor
         return tensor
 
@@ -308,7 +316,7 @@ class DeepQAgent(Agent):
             if not done:
                 next_state = self.training_data[i+1][self.STATE]
             else:
-                next_state = None
+                next_state = 0
             self.replay_buffer.append([state, legal_actions, action, next_state, reward, done])
 
         self.training_data = []
@@ -337,6 +345,31 @@ class DeepQAgent(Agent):
 
         return tf.convert_to_tensor(states), tf.convert_to_tensor(legal_actions), tf.convert_to_tensor(actions), tf.convert_to_tensor(next_states), tf.convert_to_tensor(rewards), tf.convert_to_tensor(not_terminal)
 
+    # 1) A graph fn that takes (state_tensor, legal_action_indices) → action_index
+    # Without this , TensorFlow goes through its Python‐level traceback filtering machinery on every call to figure out which frames to show you if an exception happens.
+    @tf.function(
+      input_signature=[
+        tf.TensorSpec(shape=[1, None], dtype=tf.float32),
+        tf.TensorSpec(shape=[None],   dtype=tf.int32),
+      ]
+    )
+    def _graph_act(self, s, legal_idxs):
+        # get q-values
+        q = self.online_model(s, training=False)             # shape [1, n_actions]
+        # build a mask inside TF
+        mask = tf.scatter_nd(
+            tf.expand_dims(legal_idxs, 1),                   # [[i0], [i1], …]
+            tf.ones_like(legal_idxs, dtype=tf.float32),      # [1,1,…]
+            [self.n_actions]                                 # output shape
+        )                                                     # shape [n_actions]
+        mask = tf.reshape(mask, [1, -1])                     # [1, n_actions]
+        # apply mask + LARGE_NEGATIVE_NUMBER trick
+        neg_inf = tf.constant(self.LARGE_NEGATIVE_NUMBER, tf.float32)
+        masked_q = mask * q + (1 - mask) * neg_inf           # still [1, n_actions]
+        # pick best
+        return tf.argmax(masked_q, axis=1)[0]                # a scalar tf.Tensor[int32]
+
+
     def act(self, state, actions):
         """
         Select an action using an epsilon-greedy policy.
@@ -352,16 +385,11 @@ class DeepQAgent(Agent):
         # exploit
         else:
             s             = self.state_to_input(state)
-            q             = self.online_model(s, training=False)
-            mask          = np.zeros(self.n_actions, dtype=np.float32)
-            mask[actions] = 1
-            mask          = tf.convert_to_tensor(mask)
-            masked_q      = mask * q + (1 - mask) * self.LARGE_NEGATIVE_NUMBER
-            action        = tf.argmax(masked_q, axis=1)
-            action        = int(action.numpy()[0]) # Convert 1-element tensor to int
+            # one synchronous graph call, no py-side masking or .numpy() inside TF internals:
+            action = int(self._graph_act(s, tf.constant(actions, tf.int32)))
 
         # Decrease exploration rate
-        self.exploration = np.max([self.exploration * self.exploration_decay, self.exploration_min])
+        self.exploration = np.max([self.exploration * (1-self.exploration_decay), self.exploration_min])
 
         return action
 
@@ -381,13 +409,17 @@ class DeepQAgent(Agent):
 
         self.target_model.set_weights(new_target_weights)
 
+
     def train(self):
         """
         Train the agent's Q-network using experiences from the replay buffer.
         """
 
+        if len(self.replay_buffer) < self.batch_size:
+            return                          # still warming up
         # Sample a random minibatch from the replay replay_buffer
-        if len(self.replay_buffer) >= self.batch_size:
+
+        for _ in range(self.grad_steps):    # e.g. grad_steps = 4
 
             minibatch = random.sample(self.replay_buffer, self.batch_size)
             states, legal_actions, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
@@ -402,16 +434,18 @@ class DeepQAgent(Agent):
 
             targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(masked_next_targets, axis=1)
 
-            history = self.online_model.fit(states, targets, epochs=1, verbose=0, callbacks=[self.checkpoint_callback, self.tensorboard])
+            loss = self.online_model.train_on_batch(states, targets)
+
 
             # Update the target network
             self.update_target_weights(self.target_update_tau)
 
-            # Debugging: Print training progress
-            if self.debug and self.episode % self.n_eval == 0:
-                print(f"Update: {self.episode}, Loss: {history.history['loss'][0]}")
+            if not hasattr(self, 'tb_writer'):
+                self.tb_writer = tf.summary.create_file_writer(log_dir)
+            with self.tb_writer.as_default():
+                tf.summary.scalar('loss', loss, step=self.episode)
 
-            self.episode       += 1
+        self.episode       += 1
 
 class SimpleDeepQAgent(DeepQAgent):
 
