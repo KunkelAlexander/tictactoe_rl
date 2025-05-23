@@ -315,9 +315,11 @@ class DeepQAgent(Agent):
             iteration, state, legal_actions, action, reward, done = self.training_data[i]
             if not done:
                 next_state = self.training_data[i+1][self.STATE]
+                next_legal_actions  = self.training_data[i+1][self.LEGAL_ACTIONS]
             else:
                 next_state = 0
-            self.replay_buffer.append([state, legal_actions, action, next_state, reward, done])
+                next_legal_actions  = []              # no legal moves after terminal
+            self.replay_buffer.append([state, legal_actions, action, next_state, next_legal_actions, reward, done])
 
         self.training_data = []
 
@@ -328,22 +330,34 @@ class DeepQAgent(Agent):
         :param minibatch: A minibatch of experiences.
         :return:          Tensors containing states, actions, next_states, rewards, and not_terminal flags.
         """
-        states        = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
-        legal_actions = np.zeros((len(minibatch),  self.n_actions  ), dtype=np.float32)
-        actions       = np.zeros( len(minibatch),                     dtype=np.int32  )
-        next_states   = np.zeros((len(minibatch), *self.input_shape), dtype=np.float32)
-        rewards       = np.zeros( len(minibatch),                     dtype=np.float32)
-        not_terminal  = np.zeros( len(minibatch),                     dtype=np.float32)
+        B = len(minibatch)
+        states              = np.zeros((B, *self.input_shape), dtype=np.float32)
+        legal_actions       = np.zeros((B,  self.n_actions  ), dtype=np.float32)
+        actions             = np.zeros( B,                     dtype=np.int32  )
+        next_states         = np.zeros((B, *self.input_shape), dtype=np.float32)
+        next_legal_actions  = np.zeros((B,  self.n_actions),   dtype=np.float32)
+        rewards             = np.zeros( B,                     dtype=np.float32)
+        not_terminal        = np.zeros( B,                     dtype=np.float32)
 
-        for i, (s, l, a, s_, r, d) in enumerate(minibatch):
-            states        [i, :] = self.state_to_input(s)
-            legal_actions [i, l] = 1
-            actions       [i]    = a
-            next_states   [i, :] = self.state_to_input(s_)
-            rewards       [i]    = r
-            not_terminal  [i]    = 1 - d
+        for i, (s, l, a, s_, l_, r, d) in enumerate(minibatch):
+            states        [i, :]       = self.state_to_input(s)
+            legal_actions [i, l]       = 1
+            actions       [i]          = a
+            next_states   [i, :]       = self.state_to_input(s_)
+            next_legal_actions [i, l_] = 1
+            rewards       [i]          = r
+            not_terminal  [i]          = 1 - d
 
-        return tf.convert_to_tensor(states), tf.convert_to_tensor(legal_actions), tf.convert_to_tensor(actions), tf.convert_to_tensor(next_states), tf.convert_to_tensor(rewards), tf.convert_to_tensor(not_terminal)
+        # return tensors
+        return (
+            tf.convert_to_tensor(states),
+            tf.convert_to_tensor(legal_actions),
+            tf.convert_to_tensor(actions),
+            tf.convert_to_tensor(next_states),
+            tf.convert_to_tensor(next_legal_actions),
+            tf.convert_to_tensor(rewards),
+            tf.convert_to_tensor(not_terminal)
+        )
 
     # 1) A graph fn that takes (state_tensor, legal_action_indices) → action_index
     # Without this , TensorFlow goes through its Python‐level traceback filtering machinery on every call to figure out which frames to show you if an exception happens.
@@ -384,7 +398,7 @@ class DeepQAgent(Agent):
             action = np.random.choice(actions)
         # exploit
         else:
-            s             = self.state_to_input(state)
+            s = self.state_to_input(state)
             # one synchronous graph call, no py-side masking or .numpy() inside TF internals:
             action = int(self._graph_act(s, tf.constant(actions, tf.int32)))
 
@@ -417,20 +431,24 @@ class DeepQAgent(Agent):
 
         if len(self.replay_buffer) < self.batch_size:
             return                          # still warming up
-        # Sample a random minibatch from the replay replay_buffer
 
+        # Sample a random minibatch from the replay replay_buffer
         for _ in range(self.grad_steps):    # e.g. grad_steps = 4
 
             minibatch = random.sample(self.replay_buffer, self.batch_size)
-            states, legal_actions, actions, next_states, rewards, not_terminal = self.minibatch_to_arrays(minibatch)
+
+            (states, legal_s, actions, next_states,
+            next_legal_s, rewards, not_terminal) = self.minibatch_to_arrays(minibatch)
 
             targets        = self.online_model.predict_on_batch(states)
             next_targets   = self.target_model.predict_on_batch(next_states)
 
             # Masking illegal actions in target Q-values
-            # Target-Q values for illegaion actions should not affect the loss function
+            # Target-Q values for illegal actions should not affect the loss function
             # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online model
-            masked_next_targets = legal_actions * next_targets + (1 - legal_actions) * self.LARGE_NEGATIVE_NUMBER
+            # BUT the Bellmann euqation reads gamma_t = r_t + gamma * max over actions in s_t+1 of Q(s_t+1)
+            # Therefore the legal equations considered should be the legal actions in the state t+1, not t
+            masked_next_targets = next_legal_s * next_targets + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
 
             targets[np.arange(len(targets)), actions]  = rewards + not_terminal * self.discount * np.max(masked_next_targets, axis=1)
 
