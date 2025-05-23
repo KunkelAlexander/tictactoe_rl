@@ -14,6 +14,20 @@ class TicTacToe:
         self.board_size = board_size
         self.agent_count = agent_count
 
+
+        # Precompute the base‐powers for get_state
+        base = 1 + agent_count
+        self._powers = (base ** np.arange(board_size * board_size)).astype(np.int64)
+
+
+        # indices of all winning lines (flattened index space)
+        n = board_size
+        rows    = [np.arange(i*n, i*n + n) for i in range(n)]
+        cols    = [np.arange(i, n*n, n) for i in range(n)]
+        diag1   = [np.arange(0, n*n, n+1)]
+        diag2   = [np.arange(n-1, n*n-1, n-1)]
+        self._lines = np.stack(rows + cols + diag1 + diag2)  # shape: (2n+2, n)
+
     def copy(self) -> 'TicTacToe':
         """
         Create a deep copy of the TicTacToe game.
@@ -36,8 +50,9 @@ class TicTacToe:
 
         :return: An integer representing the game state.
         """
-        base = 1 + self.agent_count
-        return np.sum(self.board.flatten() * (base ** np.arange(self.board.size)), dtype=int)
+        flat = self.board.ravel()
+        # a single dot‐product, no exponents every call
+        return int(flat.dot(self._powers))
 
     def set_state(self, state: int):
         """
@@ -115,16 +130,12 @@ class TicTacToe:
         if agent_id <= self.FIELD_EMPTY or agent_id > self.agent_count:
             raise ValueError(f"Invalid agent ID: {agent_id}")
 
-        # Check rows and columns for a win
-        for i in range(self.board_size):
-            if np.all(board[i, :] == agent_id) or np.all(board[:, i] == agent_id):
-                return True
-
-        # Check diagonals for a win
-        if np.all(np.diag(board) == agent_id) or np.all(np.diag(np.fliplr(board)) == agent_id):
-            return True
-
-        return False
+        board = self.board if board is None else board
+        flat  = board.ravel()
+        # compare once
+        matches = (flat[self._lines] == agent_id)
+        # a win if any line is all True
+        return np.any(matches.all(axis=1))
 
     def is_tic_tac_toe_full(self) -> bool:
         """
