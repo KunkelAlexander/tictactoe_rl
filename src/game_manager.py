@@ -34,7 +34,7 @@ class GameManager:
         self.agents = agents
         self.gui = gui
 
-    def run_game(self, do_training: bool, randomise_order: bool, only_legal_actions: bool, debug: bool = False):
+    def run_game(self, do_training: bool, randomise_order: bool, only_legal_actions: bool, debug: bool = False, start_state: int = 0):
         """
         Run the game until completion, managing agent actions and updates.
 
@@ -44,7 +44,7 @@ class GameManager:
             only_legal_actions (bool): Whether to restrict agents to legal actions.
             debug (bool): Whether to enable debug mode.
         """
-        self.game.start_game()
+        self.game.start_game(start_state=start_state)
 
         for agent in self.agents:
             agent.start_game(do_training=do_training)
@@ -68,7 +68,7 @@ class GameManager:
                 done          = self.is_game_over(game_events)
                 agent.update(iteration, state, legal_actions, action, reward, done)
                 if self.gui is not None:
-                    self.gui(self.game, agent.agent_id, events, done)
+                    self.gui(self.game, agent.agent_id, game_events, done)
 
                 if done:
                     break
@@ -95,7 +95,7 @@ class GameManager:
         """
         rewards = {
             "INVALID_MOVE": -1.0,
-            "ONGOING": -0.01,
+            "ONGOING": -.0,
             "DRAW": 0.0,
             "VICTORY": 1.0,
             "DEFEAT":  -1.0

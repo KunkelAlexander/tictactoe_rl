@@ -3,7 +3,7 @@ import os
 import errno
 from datetime import datetime
 from tqdm import tqdm
-
+from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -59,7 +59,7 @@ class TrainingManager:
 
         return draw_rate, victory_rates, avg_cum_rewards
 
-    def run_training(self, config, agents=None):
+    def run_training(self, config, agents=None, callback=None):
         """
         Run training episodes of a game with multiple agents and collect statistics.
 
@@ -77,6 +77,9 @@ class TrainingManager:
         randomise_order     = config["randomise_order"]
         only_legal_actions  = config["only_legal_actions"]
         debug               = config["debug"]
+        plot_debug          = config["plot_debug"]
+        do_training         = config.get("do_training", True)
+        callback_freq       = config.get("callback_freq", 1e15)
 
         if agents is None:
             agents = []
@@ -99,67 +102,83 @@ class TrainingManager:
                 else:
                     raise ValueError(F"Unknown agent type: {agent_type}")
 
-        outputs = []
+        results = {
+            "config": config,
+            "timestamp": datetime.now().strftime('%Y-%m-%d_%H-%M-%S'),
+            "evaluation_episodes": [],
+            "metrics": defaultdict(list),  # keys: 'draw_rate', 'victory_rate_<agent>', 'reward_<agent>'
+        }
 
-        for episode in tqdm(range(n_episode)):
+        for episode in range(n_episode):
             game_manager = GameManager(game=self.game, agents=agents, gui=None)
-            game_manager.run_game(do_training=True, randomise_order=randomise_order, only_legal_actions=only_legal_actions, debug=debug)
+            game_manager.run_game(
+                do_training=do_training,
+                randomise_order=randomise_order,
+                only_legal_actions=only_legal_actions,
+                debug=debug
+            )
 
-            if episode % train_freq == 0:
+            if episode % train_freq == 0 and do_training:
                 for agent in agents:
                     agent.train()
 
             if episode % eval_freq == 0:
-                output = self.evaluate_agents(agents=agents, n_eval=n_eval, randomise_order=randomise_order, only_legal_actions=only_legal_actions, debug=debug)
-                outputs.append((episode, output))
-
-        mydir = os.path.join(
-                    os.getcwd(),
-                    "runs",
-                    datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+                output = self.evaluate_agents(
+                    agents=agents,
+                    n_eval=n_eval,
+                    randomise_order=randomise_order,
+                    only_legal_actions=only_legal_actions,
+                    debug=debug
                 )
-        try:
-            os.makedirs(mydir)
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise  # This was not a "directory exist" error..
+                draw_rate, victory_rate, avg_cum_reward = output
+                results["evaluation_episodes"].append(episode)
+                results["metrics"]["draw_rate"].append(draw_rate)
+                for i, agent in enumerate(agents):
+                    results["metrics"][f"victory_rate_{agent.name}"].append(victory_rate[i])
+                    results["metrics"][f"reward_{agent.name}"].append(avg_cum_reward[i])
+                    # Safe loss extraction
+                    loss = None
+                    if hasattr(agent, "training_log") and agent.training_log:
+                        last_entry = agent.training_log[-1]
+                        if "loss" in last_entry:
+                            loss = last_entry["loss"]
+                    results["metrics"][f"loss_{agent.name}"].append(loss)
 
+            if episode % callback_freq == 0 and callback:
+                callback(game_manager=game_manager)
 
-        with open(mydir + "/training_information.txt", 'w') as f:
+        # Save config to a log directory
+        mydir = os.path.join(os.getcwd(), "runs", results["timestamp"])
+        os.makedirs(mydir, exist_ok=True)
+
+        with open(os.path.join(mydir, "training_information.txt"), 'w') as f:
             print(config, file=f)
 
-        episodes        = np.zeros(len(outputs))
-        draw_rates      = np.zeros(len(outputs))
-        victory_rates   = np.zeros((len(outputs), len(agents)))
-        avg_cum_rewards = np.zeros((len(outputs), len(agents)))
-        for i, (episode, output) in enumerate(outputs):
-            draw_rate, victory_rate, avg_cum_reward = output
-            episodes[i]        = episode
-            draw_rates[i]      = draw_rate
-            victory_rates[i]   = victory_rate
-            avg_cum_rewards[i] = avg_cum_reward
+        # Optional plotting
+        if plot_debug:
+            import matplotlib.pyplot as plt
 
+            x = results["evaluation_episodes"]
+            plt.title("Game outcomes")
+            plt.ylabel("Fraction of game outcomes")
+            plt.xlabel("Number of episodes")
+            plt.plot(x, results["metrics"]["draw_rate"], label="draws")
+            for agent in agents:
+                plt.plot(x, results["metrics"][f"victory_rate_{agent.name}"], label=f"{agent.name} wins")
+            plt.legend()
+            plt.savefig(os.path.join(mydir, "outcomes.png"))
+            plt.close()
 
-        plt.title("Game outcomes")
-        plt.ylabel("Fraction of game outcomes")
-        plt.xlabel("Number of episodes")
+            plt.title("Cumulative rewards")
+            plt.ylabel("Cumulative rewards per episode")
+            plt.xlabel("Number of episodes")
+            for agent in agents:
+                plt.plot(x, results["metrics"][f"reward_{agent.name}"], label=f"{agent.name} reward")
+            plt.legend()
+            plt.savefig(os.path.join(mydir, "rewards.png"))
+            plt.close()
 
-        plt.plot(episodes, draw_rates, label="draws")
-        for i, agent in enumerate(agents):
-            plt.plot(episodes, victory_rates[:, i], label=f"{agent.name} wins")
-        plt.legend()
-        plt.savefig(mydir + "/outcomes.png")
-        plt.show()
-        plt.close()
-
-        plt.title("Cumulative rewards")
-        plt.ylabel("Cumulative rewards per episode")
-        plt.xlabel("Number of episodes")
-        for i, agent in enumerate(agents):
-            plt.plot(episodes, avg_cum_rewards[:, i], label=f"{agent.name} reward")
-        plt.legend()
-        plt.savefig(mydir + "/rewards.png")
-        plt.close()
-
-        return agents, draw_rates, victory_rates, avg_cum_rewards
-
+        return {
+            "agents": agents,
+            "results": results
+        }

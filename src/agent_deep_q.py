@@ -75,10 +75,14 @@ class DeepQAgent(Agent):
         self.batch_size          = config["batch_size"]
         self.replay_buffer_size  = config["replay_buffer_size"]
         self.replay_buffer_min   = config["replay_buffer_min"]
+        self.target_update_mode  = config["target_update_mode"]
+        self.target_update_freq  = config["target_update_freq"]
         self.target_update_tau   = config["target_update_tau"]
         self.debug               = config["debug"]
-        self.episode             = 0
+        self.training_round      = 0
         self.training_data       = []
+        self.training_log        = []
+
 
         self.replay_buffer       = deque(maxlen=self.replay_buffer_size)
 
@@ -92,6 +96,22 @@ class DeepQAgent(Agent):
         self.online_model        = None
         self.target_model        = None
 
+
+    def get_q(self):
+        """
+        Return the approximated Q-table as a NumPy array of shape (n_states, n_actions),
+        by querying the online model for all states in the environment.
+
+        :return: A NumPy array representing Q-values for all states.
+        """
+        q_values = np.zeros((self.n_states, self.n_actions), dtype=np.float32)
+
+        for state in range(self.n_states):
+            s_tensor = self.state_to_input(state)         # shape: (1, input_dim)
+            q_pred = self.online_model(s_tensor, training=False)  # shape: (1, n_actions)
+            q_values[state] = q_pred.numpy().squeeze()
+
+        return q_values
 
 
 
@@ -308,15 +328,20 @@ class DeepQAgent(Agent):
     def update_target_weights(self, tau):
         """
         Update the weights of the target network according to
-        target_weight = (1 - tau) * target_weight + tau * online_weight
+        target_weight = (1 - tau) * target_weight + tau * online_weight for soft update
+        and
+        target_weight = online_weight for hard update
         """
         online_weights = self.online_model.get_weights()
         target_weights = self.target_model.get_weights()
 
-        new_target_weights = [
-            (1 - tau) * target_weight + tau * online_weight
-            for online_weight, target_weight in zip(online_weights, target_weights)
-        ]
+        if self.target_update_mode == "soft":
+            new_target_weights = [
+                (1 - tau) * target_weight + tau * online_weight
+                for online_weight, target_weight in zip(online_weights, target_weights)
+            ]
+        else:
+            new_target_weights = online_weights
 
         self.target_model.set_weights(new_target_weights)
 
@@ -330,7 +355,7 @@ class DeepQAgent(Agent):
             return                          # still warming up
 
         # Sample a random minibatch from the replay replay_buffer
-        for _ in range(self.grad_steps):    # e.g. grad_steps = 4
+        for gradient_step in range(self.grad_steps):    # e.g. grad_steps = 4
 
             minibatch = random.sample(self.replay_buffer, self.batch_size)
 
@@ -368,16 +393,17 @@ class DeepQAgent(Agent):
             targets[np.arange(len(targets)), actions] = r + nt * self.discount * q_next_max
 
             loss = self.online_model.train_on_batch(states, targets)
+            self.training_log.append({
+                "training_round": self.training_round,
+                "gradient_step": gradient_step,
+                "loss": float(loss)
+            })
 
-            if not hasattr(self, 'tb_writer'):
-                self.tb_writer = tf.summary.create_file_writer(log_dir)
-            with self.tb_writer.as_default():
-                tf.summary.scalar('loss', loss, step=self.episode)
+        # soft‐update target network
+        if self.training_round% self.target_update_freq == 0:
+            self.update_target_weights(self.target_update_tau)
 
-        # Update the target network
-        self.update_target_weights(self.target_update_tau)
-
-        self.episode += 1
+        self.training_round+= 1
 
 class ConvolutionalDeepQAgent(DeepQAgent):
 
@@ -607,8 +633,9 @@ class PrioritisedDeepQAgent(DeepQAgent):
             if not hasattr(self, 'tb_writer'):
                 self.tb_writer = tf.summary.create_file_writer(log_dir)
             with self.tb_writer.as_default():
-                tf.summary.scalar('loss', loss, step=self.episode)
+                tf.summary.scalar('loss', loss, step=self.training_round)
 
         # soft‐update target network
-        self.update_target_weights(self.target_update_tau)
-        self.episode += 1
+        if self.training_round% self.target_update_freq == 0:
+            self.update_target_weights(self.target_update_tau)
+        self.training_round+= 1

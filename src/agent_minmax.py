@@ -8,8 +8,8 @@ class MinMaxAgent(Agent):
 
     outcomes = {
         "VICTORY": 1,
-        "DRAW": 0.5,
-        "DEFEAT": 0,
+        "DRAW": 0,
+        "DEFEAT": -1,
         "ONGOING": 0,
     }
 
@@ -42,6 +42,23 @@ class MinMaxAgent(Agent):
             game.set_state(state)
             best_value, best_actions = self.minimax(game, depth=9, maximising_player=True)
             self.best_moves[state] = best_actions.flatten()
+
+
+        # Return the Q-table constructed from the minmax values
+        self.q = np.full((n_states, n_actions), -np.inf)
+
+        for state in range(n_states):
+            game.set_state(state)
+            legal_actions = game.get_actions(only_legal_actions=True)
+            for action in legal_actions:
+                game_copy = game.copy()
+                game_copy.make_move(self.agent_id, action)
+                value, _ = self.minimax(game_copy, depth=8, maximising_player=False)
+                self.q[state][action] = value
+
+
+    def get_q(self):
+        return self.q
 
     def minimax(self, game, depth, maximising_player):
         state = game.get_state()

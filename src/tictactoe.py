@@ -38,11 +38,13 @@ class TicTacToe:
         copied_game.board = self.board.copy()
         return copied_game
 
-    def start_game(self):
+    def start_game(self, start_state=0):
         """
         Initialize the TicTacToe board.
         """
         self.board = self.FIELD_EMPTY * np.ones((self.board_size, self.board_size), dtype=int)
+
+        self.set_state(start_state)
 
     def get_state(self) -> int:
         """
@@ -144,3 +146,45 @@ class TicTacToe:
         :return: True if the board is full, False otherwise.
         """
         return np.all(self.board != self.FIELD_EMPTY)
+
+    def is_valid_state(self, starting_agent_id: int, perspective_agent_id: int) -> bool:
+        """
+        Determine if the current board state is valid given who started the game and
+        from whose perspective we are evaluating the validity.
+
+        :param starting_agent_id: The agent who started the game (1 or 2).
+        :param perspective_agent_id: The agent from whose perspective we are evaluating.
+        :return: True if the state is valid, False otherwise.
+        """
+        if starting_agent_id not in [1, 2] or perspective_agent_id not in [1, 2]:
+            raise ValueError("Only agent IDs 1 and 2 are supported.")
+
+        flat = self.board.ravel()
+
+        # Validate board values
+        if np.any((flat < 0) | (flat > self.agent_count)):
+            return False
+
+        # Count number of moves made by each agent
+        moves = {1: np.count_nonzero(flat == 1), 2: np.count_nonzero(flat == 2)}
+        total_moves = moves[1] + moves[2]
+        move_diff = moves[1] - moves[2]
+
+        # Check valid move count difference based on starting agent
+        if starting_agent_id == 1:
+            if move_diff not in [0, 1]:
+                return False
+            current_turn = 1 if move_diff == 0 else 2
+        else:
+            if move_diff not in [-1, 0]:
+                return False
+            current_turn = 2 if move_diff == 0 else 1
+
+        # If game is over (victory or draw), no further moves may be played
+        state_eval = self.evaluate_game_state(perspective_agent_id)
+        if state_eval in ["VICTORY", "DEFEAT", "DRAW"]:
+            return False
+
+        # Otherwise, it's valid only if it's this agent's turn
+        return current_turn == perspective_agent_id
+
