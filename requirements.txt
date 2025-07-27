@@ -3,3 +3,6 @@ argparse
 tqdm
 tensorflow
 snakeviz
+matplotlib
+plotly
+PIL

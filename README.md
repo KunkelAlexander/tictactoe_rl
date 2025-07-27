@@ -1,5 +1,15 @@
 # tictactoe-rl
+
+![gameplay-animation](figures/1_minimax_vs_minimax_game_play.gif)
+
 Implement simple tictactoe game in Python with text-based output and learn how to play it using the Minmax algorithm, tabular Q-learning and deep Q-learning with dense and covolutional neural networks using a dual network architecture, dueling network and (prioritised) experience replay. The neural networks are implemented using Keras and TensorFlow. I took inspiration and validated the results with Casten Friedrich's tutorial on implementing reinforcement agents for tictactoe https://github.com/fcarsten/tic-tac-toe.
+
+Please see my blog posts explaining the code in case of interest:
+-  ![Computers learning Tic-Tac-Toe Pt. 1: Tabular Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-tabular-q/)
+-  ![Computers learning Tic-Tac-Toe Pt. 2: Deep Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-deep-q/)
+-  ![Computers learning Tic-Tac-Toe Pt. 3: Optimisation](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-optimisation/)
+
+All figures were generated using ![this notebook](blog_post.ipynb).
 
 ## Usage
 
