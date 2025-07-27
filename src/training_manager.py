@@ -166,6 +166,7 @@ class TrainingManager:
             for agent in agents:
                 plt.plot(x, results["metrics"][f"victory_rate_{agent.name}"], label=f"{agent.name} wins")
             plt.legend()
+            plt.show()
             plt.savefig(os.path.join(mydir, "outcomes.png"))
             plt.close()
 
@@ -176,6 +177,7 @@ class TrainingManager:
                 plt.plot(x, results["metrics"][f"reward_{agent.name}"], label=f"{agent.name} reward")
             plt.legend()
             plt.savefig(os.path.join(mydir, "rewards.png"))
+            plt.show()
             plt.close()
 
         return {
