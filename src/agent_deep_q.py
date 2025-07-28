@@ -79,6 +79,8 @@ class DeepQAgent(Agent):
         self.target_update_freq  = config["target_update_freq"]
         self.target_update_tau   = config["target_update_tau"]
         self.debug               = config["debug"]
+        self.double_dqn          = config.get("double_dqn", True)
+
         self.training_round      = 0
         self.training_data       = []
         self.training_log        = []
@@ -407,6 +409,71 @@ class DeepQAgent(Agent):
         self.update_target_weights()
 
         self.training_round+= 1
+
+
+class DoubleDeepQAgent(DeepQAgent):
+    """
+    Deep Q‑Agent that uses Double DQN for target computation:
+    online network picks next action, target network evaluates it.
+    """
+    def __init__(self, agent_id, n_actions, n_states, config):
+        super().__init__(agent_id, n_actions, n_states, config)
+        # no extra flags needed—this class always uses Double‑DQN
+
+    def train(self):
+        """
+        Train using Double DQN:
+        Q_target = r + γ * Q_target_net(s', argmax_a Q_online(s', a))
+        """
+        # warm‑up
+        if len(self.replay_buffer) < self.replay_buffer_min:
+            return
+
+        for gradient_step in range(self.grad_steps):
+            minibatch = random.sample(self.replay_buffer, self.batch_size)
+            (states, legal_s, actions,
+             next_states, next_legal_s,
+             rewards, not_terminal) = self.minibatch_to_arrays(minibatch)
+
+            # 1) current Qs for state batch
+            targets = self.online_model.predict_on_batch(states)
+
+            # 2) get next‑state Qs from both networks
+            online_next  = self.online_model.predict_on_batch(next_states)
+            target_next  = self.target_model.predict_on_batch(next_states)
+
+            # 3) mask illegal actions in online predictions → choose best a'
+            masked_online = next_legal_s * online_next \
+                         + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
+            next_actions  = np.argmax(masked_online, axis=1)     # shape (B,)
+
+            # 4) evaluate those actions under the target network
+            batch_idx     = np.arange(len(next_actions))
+            q_next_eval   = target_next[batch_idx, next_actions]  # shape (B,)
+
+            # 5) zero‑out any rows with no legal moves
+            has_any = tf.reduce_sum(next_legal_s, axis=1) > 0       # (B,) bool
+            q_next_eval = np.where(has_any.numpy(), q_next_eval, 0.0)
+
+            # 6) Bellman update into our target array
+            r  = rewards.numpy()
+            nt = not_terminal.numpy()
+            targets[np.arange(len(targets)), actions] = (
+                r + nt * self.discount * q_next_eval
+            )
+
+            # 7) gradient step on online network
+            loss = self.online_model.train_on_batch(states, targets)
+            self.training_log.append({
+                "training_round": self.training_round,
+                "gradient_step": gradient_step,
+                "loss": float(loss)
+            })
+
+        # 8) sync or soft‑update the target network
+        self.update_target_weights()
+        self.training_round += 1
+
 
 class ConvolutionalDeepQAgent(DeepQAgent):
 
