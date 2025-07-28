@@ -325,25 +325,29 @@ class DeepQAgent(Agent):
         return action
 
 
-    def update_target_weights(self, tau):
+    def update_target_weights(self):
         """
         Update the weights of the target network according to
         target_weight = (1 - tau) * target_weight + tau * online_weight for soft update
         and
         target_weight = online_weight for hard update
         """
-        online_weights = self.online_model.get_weights()
-        target_weights = self.target_model.get_weights()
 
         if self.target_update_mode == "soft":
+            online_weights = self.online_model.get_weights()
+            target_weights = self.target_model.get_weights()
+
             new_target_weights = [
-                (1 - tau) * target_weight + tau * online_weight
+                (1 - self.target_update_tau) * target_weight + self.target_update_tau * online_weight
                 for online_weight, target_weight in zip(online_weights, target_weights)
             ]
-        else:
-            new_target_weights = online_weights
+            self.target_model.set_weights(new_target_weights)
 
-        self.target_model.set_weights(new_target_weights)
+        else:
+            if self.training_round % self.target_update_freq == 0:
+                self.target_model.set_weights(self.online_model.get_weights())
+
+
 
 
     def train(self):
@@ -399,9 +403,8 @@ class DeepQAgent(Agent):
                 "loss": float(loss)
             })
 
-        # soft‐update target network
-        if self.training_round% self.target_update_freq == 0:
-            self.update_target_weights(self.target_update_tau)
+        # update target network
+        self.update_target_weights()
 
         self.training_round+= 1
 
@@ -635,7 +638,7 @@ class PrioritisedDeepQAgent(DeepQAgent):
             with self.tb_writer.as_default():
                 tf.summary.scalar('loss', loss, step=self.training_round)
 
-        # soft‐update target network
-        if self.training_round% self.target_update_freq == 0:
-            self.update_target_weights(self.target_update_tau)
+        # update target network
+        self.update_target_weights()
+
         self.training_round+= 1

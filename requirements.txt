@@ -6,4 +6,5 @@ snakeviz
 matplotlib
 plotly
 pandas
+seaborn
 PIL
