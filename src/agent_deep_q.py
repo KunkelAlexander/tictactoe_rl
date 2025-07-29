@@ -624,20 +624,14 @@ class SumTree:
 class PrioritisedDeepQAgent(DeepQAgent):
 
     def __init__(self, agent_id, n_actions, n_states, config):
-        """
-        A Q-learning agent with a simple dense neural network for Q-value approximation.
-
-        :param agent_id:            The ID of the agent.
-        :param n_actions:           The number of available actions.
-        :param n_states:            The number of states in the environment.
-        :param config:              A dictionary containing configuration parameters.
-        """
         super().__init__(agent_id, n_actions, n_states, config)
-
         self.replay_buffer = PrioritizedReplayBuffer(
-                capacity=config["replay_buffer_size"],
-                alpha=0.6, beta0=0.4, beta_steps=1e5
-            )
+            capacity=config["replay_buffer_size"],
+            alpha=config.get("prb_alpha", 0.6),
+            beta0=config.get("prb_beta0", 0.4),
+            beta_steps=config.get("prb_beta_steps", 1e6),
+            epsilon=config.get("prb_epsilon", 1e-6),
+        )
 
     # Overwritten for prioritised experience buffer
     def add_to_replay_buffer(self, transition):
@@ -652,7 +646,7 @@ class PrioritisedDeepQAgent(DeepQAgent):
             return
 
         # perform multiple gradient steps per call if you like
-        for _ in range(self.grad_steps):
+        for gradient_step in range(self.grad_steps):
             # 1) sample with PER
             batch, idxs, weights = self.replay_buffer.sample(self.batch_size)
 
@@ -699,13 +693,15 @@ class PrioritisedDeepQAgent(DeepQAgent):
             # 7) update priorities in the tree
             self.replay_buffer.update_priorities(idxs, td_errors)
 
-            # 8) (optional) log to TensorBoard
-            if not hasattr(self, 'tb_writer'):
-                self.tb_writer = tf.summary.create_file_writer(log_dir)
-            with self.tb_writer.as_default():
-                tf.summary.scalar('loss', loss, step=self.training_round)
+
+            # 7) gradient step on online network
+            loss = self.online_model.train_on_batch(states, targets)
+            self.training_log.append({
+                "training_round": self.training_round,
+                "gradient_step": gradient_step,
+                "loss": float(loss)
+            })
 
         # update target network
         self.update_target_weights()
-
         self.training_round+= 1
