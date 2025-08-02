@@ -10,6 +10,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint  # Import Mo
 from tensorflow.keras import layers, models
 
 from .agent import Agent
+from .prioritised_experience_replay import PrioritizedReplayBuffer
 from .util  import decimal_to_base
 
 # Define a directory to save checkpoints and logs
@@ -20,6 +21,37 @@ log_dir = 'logs'
 os.makedirs(checkpoint_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
 
+# Base class for sampling buffer (either uniform buffer or prioritised experience replay buffer)
+class ReplaySampler:
+    def sample(self, buffer, batch_size):
+        raise NotImplementedError
+
+    def add(self, buffer, transition):
+        raise NotImplementedError
+
+    def update_priorities(self, buffer, idxs, td_errors):
+        pass  # No-op for uniform replay
+
+class UniformReplaySampler(ReplaySampler):
+    def sample(self, buffer, batch_size):
+        minibatch = random.sample(buffer, batch_size)
+        idxs = None
+        weights = np.ones(batch_size, dtype=np.float32)  # uniform weights
+        return minibatch, idxs, weights
+
+    def add(self, buffer, transition):
+        buffer.append(transition)
+
+class PrioritizedReplaySampler(ReplaySampler):
+    def sample(self, buffer, batch_size):
+        minibatch, idxs, weights = buffer.sample(batch_size)
+        return minibatch, idxs, weights
+
+    def update_priorities(self, buffer, idxs, td_errors):
+        buffer.update_priorities(idxs, td_errors)
+
+    def add(self, buffer, transition):
+        buffer.add(transition)
 
 class DeepQAgent(Agent):
     # encoding of feature vector
@@ -79,14 +111,34 @@ class DeepQAgent(Agent):
         self.target_update_freq  = config["target_update_freq"]
         self.target_update_tau   = config["target_update_tau"]
         self.debug               = config["debug"]
-        self.double_dqn          = config.get("double_dqn", True)
+
+        self.q_visits            = np.zeros((n_states, n_actions))
 
         self.training_round      = 0
         self.training_data       = []
         self.training_log        = []
 
+        self.enable_double_dqn   = config.get("enable_double_dqn", False)
+        if self.enable_double_dqn:
+            print("Double DQN enabled!")
+        self.enable_prio_exp_rep = config.get("enable_prioritised_experience_replay", False)
+        if self.enable_prio_exp_rep:
+            print("Prioritised Experience Replay enabled!")
 
-        self.replay_buffer       = deque(maxlen=self.replay_buffer_size)
+        if not self.enable_prio_exp_rep:
+            self.replay_buffer  = deque(maxlen=self.replay_buffer_size)
+            self.replay_sampler = UniformReplaySampler()
+        else:
+            self.replay_buffer  = PrioritizedReplayBuffer(
+                capacity=self.replay_buffer_size,
+                alpha=config.get("prb_alpha", 0.6),
+                beta0=config.get("prb_beta0", 0.4),
+                beta_steps=config.get("prb_beta_steps", 1e6),
+                epsilon=config.get("prb_epsilon", 1e-6),
+            )
+
+            self.replay_sampler = PrioritizedReplaySampler()
+
 
         self._input_cache       = {}
 
@@ -210,9 +262,6 @@ class DeepQAgent(Agent):
                 raise ValueError(f"Missing iteration between iterations {i1} and {i2} in training data")
 
 
-    # Overwritten for prioritised experience buffer
-    def add_to_replay_buffer(self, transition):
-        self.replay_buffer.append(transition)
 
     def move_training_data_to_replay_buffer(self):
         """
@@ -228,7 +277,7 @@ class DeepQAgent(Agent):
             else:
                 next_state          = self.TERMINAL_STATE_ID
                 next_legal_actions  = [] # no legal moves after terminal
-            self.add_to_replay_buffer([state, legal_actions, action, next_state, next_legal_actions, reward, done])
+            self.replay_sampler.add(self.replay_buffer, [state, legal_actions, action, next_state, next_legal_actions, reward, done])
 
         self.training_data = []
 
@@ -363,42 +412,72 @@ class DeepQAgent(Agent):
         # Sample a random minibatch from the replay replay_buffer
         for gradient_step in range(self.grad_steps):    # e.g. grad_steps = 4
 
-            minibatch = random.sample(self.replay_buffer, self.batch_size)
+            # --- Sample minibatch using the sampler ---
+            minibatch, idxs, weights = self.replay_sampler.sample(
+                self.replay_buffer, self.batch_size
+            )
+
+            # Update how often states are visited during training
+            for (s, _, a, _, _, _, _) in minibatch:
+                self.q_visits[s][a] += 1
+
 
             (states, legal_s, actions, next_states,
             next_legal_s, rewards, not_terminal) = self.minibatch_to_arrays(minibatch)
 
-            targets        = self.online_model.predict_on_batch(states)
-            next_targets   = self.target_model.predict_on_batch(next_states)
+            # 1) current Qs for state batch
+            targets         = self.online_model.predict_on_batch(states)
 
+            # 2) get next‑state Qs from both networks
+            # In Vanilla DQN, use target_model for predicting next action and computing Q-value
+
+            if self.enable_double_dqn:
+                next_targets_Q       = self.target_model.predict_on_batch(next_states)
+                next_targets_predict = self.online_model.predict_on_batch(next_states)
+            else:
+                next_targets_Q       = self.target_model.predict_on_batch(next_states)
+                next_targets_predict = next_targets_Q
+
+
+            # 3) mask illegal actions in online/target predictions → choose best a'
             # Masking illegal actions in target Q-values
             # Target-Q values for illegal actions should not affect the loss function
             # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online model
             # BUT the Bellmann euqation reads gamma_t = r_t + gamma * max over actions in s_t+1 of Q(s_t+1)
             # Therefore the legal equations considered should be the legal actions in the state t+1, not t
 
-            # 1.  Standard masking with a large negative number
-            masked_next = next_legal_s * next_targets + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
+            # 3.1) Standard masking with a large negative number
+            masked_next = next_legal_s * next_targets_predict + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
 
+            # 3.2) Use argmax to select the best action, after masking the illegal actions
+            next_actions = tf.argmax(masked_next, axis=1)  # (B,)
 
-            # ---- any legal action? ----
-            has_any_legal = tf.reduce_sum(next_legal_s, axis=1) > 0        # (B,) bool
+            # 4. Get the Q-values for the selected actions (from the target model)
+            next_q_max = tf.gather(next_targets_Q, next_actions, axis=1)  # (B,)
 
             # ---- max over a′ ----
             q_next_max = tf.reduce_max(masked_next, axis=1)                # (B,)
 
             # ---- zero-out rows with no legal moves ----
-            q_next_max = tf.where(has_any_legal, q_next_max, 0.0)
+            has_any_legal = tf.reduce_sum(next_legal_s, axis=1) > 0        # (B,) bool
+            q_next_max    = tf.where(has_any_legal, q_next_max, 0.0)
 
             # ---- Bellman update (convert to NumPy so we can index) ----
-            q_next_max = q_next_max.numpy()
+            q_next_max   = q_next_max.numpy()
+
+            #  ---- build targets and compute td-errors
+            r            = rewards.numpy()
+            nt           = not_terminal.numpy()
+            true_targets = r + nt * self.discount * q_next_max
+            target_idxs  = np.arange(len(targets))
+
+            td_errors    = true_targets - targets[target_idxs, actions]
+            self.replay_sampler.update_priorities(self.replay_buffer, idxs, td_errors)
+
+            targets[target_idxs, actions] = true_targets
 
 
-            r  = rewards.numpy()
-            nt = not_terminal.numpy()
-            targets[np.arange(len(targets)), actions] = r + nt * self.discount * q_next_max
-
-            loss = self.online_model.train_on_batch(states, targets)
+            loss = self.online_model.train_on_batch(states, targets, sample_weight=weights)
             self.training_log.append({
                 "training_round": self.training_round,
                 "gradient_step": gradient_step,
@@ -409,70 +488,6 @@ class DeepQAgent(Agent):
         self.update_target_weights()
 
         self.training_round+= 1
-
-
-class DoubleDeepQAgent(DeepQAgent):
-    """
-    Deep Q‑Agent that uses Double DQN for target computation:
-    online network picks next action, target network evaluates it.
-    """
-    def __init__(self, agent_id, n_actions, n_states, config):
-        super().__init__(agent_id, n_actions, n_states, config)
-        # no extra flags needed—this class always uses Double‑DQN
-
-    def train(self):
-        """
-        Train using Double DQN:
-        Q_target = r + γ * Q_target_net(s', argmax_a Q_online(s', a))
-        """
-        # warm‑up
-        if len(self.replay_buffer) < self.replay_buffer_min:
-            return
-
-        for gradient_step in range(self.grad_steps):
-            minibatch = random.sample(self.replay_buffer, self.batch_size)
-            (states, legal_s, actions,
-             next_states, next_legal_s,
-             rewards, not_terminal) = self.minibatch_to_arrays(minibatch)
-
-            # 1) current Qs for state batch
-            targets = self.online_model.predict_on_batch(states)
-
-            # 2) get next‑state Qs from both networks
-            online_next  = self.online_model.predict_on_batch(next_states)
-            target_next  = self.target_model.predict_on_batch(next_states)
-
-            # 3) mask illegal actions in online predictions → choose best a'
-            masked_online = next_legal_s * online_next \
-                         + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
-            next_actions  = np.argmax(masked_online, axis=1)     # shape (B,)
-
-            # 4) evaluate those actions under the target network
-            batch_idx     = np.arange(len(next_actions))
-            q_next_eval   = target_next[batch_idx, next_actions]  # shape (B,)
-
-            # 5) zero‑out any rows with no legal moves
-            has_any = tf.reduce_sum(next_legal_s, axis=1) > 0       # (B,) bool
-            q_next_eval = np.where(has_any.numpy(), q_next_eval, 0.0)
-
-            # 6) Bellman update into our target array
-            r  = rewards.numpy()
-            nt = not_terminal.numpy()
-            targets[np.arange(len(targets)), actions] = (
-                r + nt * self.discount * q_next_eval
-            )
-
-            # 7) gradient step on online network
-            loss = self.online_model.train_on_batch(states, targets)
-            self.training_log.append({
-                "training_round": self.training_round,
-                "gradient_step": gradient_step,
-                "loss": float(loss)
-            })
-
-        # 8) sync or soft‑update the target network
-        self.update_target_weights()
-        self.training_round += 1
 
 
 class ConvolutionalDeepQAgent(DeepQAgent):
@@ -518,190 +533,3 @@ class ConvolutionalDeepQAgent(DeepQAgent):
         mask = tf.reshape(mask, [1, -1])
         masked_q = mask * q + (1 - mask) * neg_inf
         return tf.argmax(masked_q, axis=1)[0]
-
-class PrioritizedReplayBuffer:
-    def __init__(self, capacity, alpha=0.6, beta0=0.4, beta_steps=1e6, epsilon=1e-6):
-        self.tree    = SumTree(capacity)
-        self.capacity= capacity
-        self.alpha   = alpha
-        self.beta    = beta0
-        self.beta0   = beta0
-        self.beta_inc= (1.0 - beta0) / beta_steps
-        self.epsilon= epsilon
-        self.max_prio = 1.0
-
-    def add(self, experience):
-        # always insert with max priority so new samples are likely to be seen
-        p = (self.max_prio + self.epsilon) ** self.alpha
-        self.tree.add(experience, p)
-
-    def sample(self, batch_size):
-        batch, idxs, ps = [], [], []
-        total = self.tree.total()
-        segment = total / batch_size
-
-        for i in range(batch_size):
-            a, b = segment*i, segment*(i+1)
-            s = np.random.uniform(a, b)
-            idx, p, data = self.tree.get(s)
-            batch.append(data)
-            idxs.append(idx)
-            ps.append(p)
-
-        # compute normalized probabilities
-        ps = np.array(ps) / total
-        N  = len(self.tree)
-        weights = (N * ps) ** (-self.beta)
-        weights /= weights.max()
-
-        # anneal beta
-        self.beta = min(1.0, self.beta + self.beta_inc)
-
-        return batch, idxs, weights
-
-    def update_priorities(self, idxs, td_errors):
-        for idx, err in zip(idxs, td_errors):
-            p = (abs(err) + self.epsilon) ** self.alpha
-            self.tree.update(idx, p)
-            self.max_prio = max(self.max_prio, p)
-
-    def __len__(self):
-        return len(self.tree)
-
-
-class SumTree:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.tree = np.zeros(2 * capacity - 1)
-        self.data = np.zeros(capacity, dtype=object)
-        self.write = 0
-        self.n_entries = 0
-
-    def add(self, data, priority):
-        tree_index = self.write + self.capacity - 1
-
-        self.data[self.write] = data
-        self.update(tree_index, priority)
-
-        self.write += 1
-        if self.write >= self.capacity:
-            self.write = 0
-        if self.n_entries < self.capacity:
-            self.n_entries += 1
-
-    def update(self, tree_index, priority):
-        change = priority - self.tree[tree_index]
-        self.tree[tree_index] = priority
-        while tree_index != 0:
-            tree_index = (tree_index - 1) // 2
-            self.tree[tree_index] += change
-
-    def get(self, value):
-        parent_index = 0
-        while True:
-            left_child_index = 2 * parent_index + 1
-            right_child_index = left_child_index + 1
-
-            if left_child_index >= len(self.tree):
-                break
-
-            if value <= self.tree[left_child_index]:
-                parent_index = left_child_index
-            else:
-                value -= self.tree[left_child_index]
-                parent_index = right_child_index
-
-        data_index = parent_index - self.capacity + 1
-        return parent_index, self.tree[parent_index], self.data[data_index]
-
-    def total(self):
-        return self.tree[0]
-
-    def __len__(self):
-        return self.n_entries
-
-
-class PrioritisedDeepQAgent(DeepQAgent):
-
-    def __init__(self, agent_id, n_actions, n_states, config):
-        super().__init__(agent_id, n_actions, n_states, config)
-        self.replay_buffer = PrioritizedReplayBuffer(
-            capacity=config["replay_buffer_size"],
-            alpha=config.get("prb_alpha", 0.6),
-            beta0=config.get("prb_beta0", 0.4),
-            beta_steps=config.get("prb_beta_steps", 1e6),
-            epsilon=config.get("prb_epsilon", 1e-6),
-        )
-
-    # Overwritten for prioritised experience buffer
-    def add_to_replay_buffer(self, transition):
-        self.replay_buffer.add(transition)
-
-    def train(self):
-        """
-        Train the agent's Q-network using experiences from the prioritized replay buffer.
-        """
-        # only start once you've warmed up
-        if len(self.replay_buffer) < self.replay_buffer_min:
-            return
-
-        # perform multiple gradient steps per call if you like
-        for gradient_step in range(self.grad_steps):
-            # 1) sample with PER
-            batch, idxs, weights = self.replay_buffer.sample(self.batch_size)
-
-            # 2) unpack and turn into tensors
-            (states, legal_s, actions,
-            next_states, next_legal_s,
-            rewards, not_terminal) = self.minibatch_to_arrays(batch)
-
-            # 3) current Q(s,·) and next Q_target(s',·)
-            q_curr       = self.online_model.predict_on_batch(states)      # shape [B, A]
-            q_next       = self.target_model.predict_on_batch(next_states) # shape [B, A]
-
-            # 4) mask out illegal next actions
-            masked_next  = next_legal_s * q_next + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
-            has_legal    = tf.reduce_sum(next_legal_s, axis=1) > 0
-            q_next_max   = tf.where(has_legal,
-                            tf.reduce_max(masked_next, axis=1),
-                            tf.zeros_like(has_legal, tf.float32))
-            q_next_max   = q_next_max.numpy()
-
-            # 5) build targets and compute per-sample TD-errors
-            r    = rewards.numpy()
-            nt   = not_terminal.numpy()
-            # the “true” target for each sample:
-            true_targets = r + nt * self.discount * q_next_max
-
-            # copy q_curr so we can edit only the taken‐action slots
-            targets = q_curr.copy()
-            idxs_arange = np.arange(self.batch_size)
-            # set the updated Q-values
-            targets[idxs_arange, actions] = true_targets
-
-            # TD-error = (r + γ·max Q') − Q(s,a)  before update
-            td_errors = true_targets - q_curr[idxs_arange, actions]
-
-            # 6) train, passing the IS‐weights so high‐priority samples have larger gradient
-            #    note: train_on_batch accepts `sample_weight` aligned with first batch-dim
-            loss = self.online_model.train_on_batch(
-                states,
-                targets,
-                sample_weight=weights
-            )
-
-            # 7) update priorities in the tree
-            self.replay_buffer.update_priorities(idxs, td_errors)
-
-
-            # 7) gradient step on online network
-            loss = self.online_model.train_on_batch(states, targets)
-            self.training_log.append({
-                "training_round": self.training_round,
-                "gradient_step": gradient_step,
-                "loss": float(loss)
-            })
-
-        # update target network
-        self.update_target_weights()
-        self.training_round+= 1

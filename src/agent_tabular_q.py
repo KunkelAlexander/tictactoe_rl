@@ -18,6 +18,7 @@ class TabularQAgent(Agent):
         self.n_states            = n_states
         self.initial_q           = config["initial_q"]
         self.q                   = self.initial_q * np.ones((n_states, n_actions))
+        self.q_visits            = np.zeros((n_states, n_actions))
         self.train_freq          = config["train_freq"]
         self.discount            = config["discount"]
         self.learning_rate       = config["learning_rate"]
@@ -135,6 +136,8 @@ class TabularQAgent(Agent):
                     self.q[state][action] += self.learning_rate * (reward + self.discount * next_max - self.q[state][action])
 
                 next_max = np.max(self.q[state])
+
+                self.q_visits[state][action] += 1
 
                 if self.debug:
                     print(f"q-value in state {state} after update: {self.q[state]}")
