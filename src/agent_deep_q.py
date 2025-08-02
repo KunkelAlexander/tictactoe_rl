@@ -102,7 +102,7 @@ class DeepQAgent(Agent):
     def get_q(self):
         """
         Return the approximated Q-table as a NumPy array of shape (n_states, n_actions),
-        by querying the online model for all states in the environment.
+        by querying the target model for all states in the environment.
 
         :return: A NumPy array representing Q-values for all states.
         """
@@ -110,7 +110,7 @@ class DeepQAgent(Agent):
 
         for state in range(self.n_states):
             s_tensor = self.state_to_input(state)         # shape: (1, input_dim)
-            q_pred = self.online_model(s_tensor, training=False)  # shape: (1, n_actions)
+            q_pred = self.target_model(s_tensor, training=False)  # shape: (1, n_actions)
             q_values[state] = q_pred.numpy().squeeze()
 
         return q_values
