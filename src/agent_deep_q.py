@@ -43,12 +43,15 @@ class UniformReplaySampler(ReplaySampler):
         buffer.append(transition)
 
 class PrioritizedReplaySampler(ReplaySampler):
+    td_error_list = []
+
     def sample(self, buffer, batch_size):
         minibatch, idxs, weights = buffer.sample(batch_size)
         return minibatch, idxs, weights
 
     def update_priorities(self, buffer, idxs, td_errors):
         buffer.update_priorities(idxs, td_errors)
+        self.td_error_list.append(td_errors)
 
     def add(self, buffer, transition):
         buffer.add(transition)
@@ -133,7 +136,8 @@ class DeepQAgent(Agent):
                 capacity=self.replay_buffer_size,
                 alpha=config.get("prb_alpha", 0.6),
                 beta0=config.get("prb_beta0", 0.4),
-                beta_steps=config.get("prb_beta_steps", 1e6),
+                # anneal beta to 1 over the course of the training, in practive, we reach 1 a little sooner than at the end because of buffer filling up in the beginning
+                beta_steps=config.get("prb_beta_steps", self.n_episode),
                 epsilon=config.get("prb_epsilon", 1e-6),
             )
 
@@ -410,83 +414,72 @@ class DeepQAgent(Agent):
             return                          # still warming up
 
         # Sample a random minibatch from the replay replay_buffer
-        for gradient_step in range(self.grad_steps):    # e.g. grad_steps = 4
+        for gradient_step in range(self.grad_steps):
 
-            # --- Sample minibatch using the sampler ---
+            # ───────── 1)  sample  ─────────
             minibatch, idxs, weights = self.replay_sampler.sample(
                 self.replay_buffer, self.batch_size
             )
 
-            # Update how often states are visited during training
+            # bookkeeping (optional – still NumPy friendly)
             for (s, _, a, _, _, _, _) in minibatch:
                 self.q_visits[s][a] += 1
 
-
+            # unpack as **tensors** (dtype=float32 unless noted)
             (states, legal_s, actions, next_states,
             next_legal_s, rewards, not_terminal) = self.minibatch_to_arrays(minibatch)
 
-            # 1) current Qs for state batch
-            targets         = self.online_model.predict_on_batch(states)
+            sample_weights = tf.convert_to_tensor(weights,      dtype=tf.float32)
 
-            # 2) get next‑state Qs from both networks
-            # In Vanilla DQN, use target_model for predicting next action and computing Q-value
+            # ───────── 2)  forward pass ─────────
+            q_current = self.online_model(states, training=False)              # (B, A)
+            q_next_t  = self.target_model(next_states, training=False)         # (B, A)
+            q_next_o  = self.online_model(next_states, training=False) if self.enable_double_dqn else q_next_t
 
-            if self.enable_double_dqn:
-                next_targets_Q       = self.target_model.predict_on_batch(next_states)
-                next_targets_predict = self.online_model.predict_on_batch(next_states)
-            else:
-                next_targets_Q       = self.target_model.predict_on_batch(next_states)
-                next_targets_predict = next_targets_Q
+            # ───────── 3)  mask + argmax on next-state ─────────
+            masked_next = tf.where(next_legal_s > 0, q_next_o, self.LARGE_NEGATIVE_NUMBER)      # (B, A)
+            best_actions = tf.argmax(masked_next, axis=1, output_type=tf.int32)  # (B,)
 
+            # if **all** actions were illegal in a row, give q=0
+            has_legal = tf.reduce_any(next_legal_s > 0, axis=1)                # (B,)
+            batch_ids = tf.range(tf.shape(states)[0], dtype=tf.int32)
+            gather_nd = tf.stack([batch_ids, best_actions], axis=1)            # (B,2)
 
-            # 3) mask illegal actions in online/target predictions → choose best a'
-            # Masking illegal actions in target Q-values
-            # Target-Q values for illegal actions should not affect the loss function
-            # This can be achived by setting the target Q-values for illegal actions to be equal to the Q-values predicted by the online model
-            # BUT the Bellmann euqation reads gamma_t = r_t + gamma * max over actions in s_t+1 of Q(s_t+1)
-            # Therefore the legal equations considered should be the legal actions in the state t+1, not t
+            next_q_max = tf.where(
+                has_legal,
+                tf.gather_nd(q_next_t, gather_nd),     # Q_target(s′, a*)
+                tf.zeros_like(rewards)                 # no legal → 0
+            )                                          # shape (B,)
 
-            # 3.1) Standard masking with a large negative number
-            masked_next = next_legal_s * next_targets_predict + (1 - next_legal_s) * self.LARGE_NEGATIVE_NUMBER
+            # ───────── 4)  Bellman target ─────────
+            true_targets = rewards + not_terminal * self.discount * next_q_max  # (B,)
 
-            # 3.2) Use argmax to select the best action, after masking the illegal actions
-            next_actions = tf.argmax(masked_next, axis=1)  # (B,)
+            # ───────── 5)  TD-error for PER ─────────)   # |δ
+            cur_q_sa   = tf.gather_nd(q_current, tf.stack([batch_ids, actions], axis=1))             # (B,)
+            td_errors  = true_targets - cur_q_sa                                                     # (B,)
+            self.replay_sampler.update_priorities(
+                self.replay_buffer, idxs, td_errors.numpy())   # |δ|+ε recommended
 
-            # 4. Get the Q-values for the selected actions (from the target model)
-            next_q_max = tf.gather(next_targets_Q, next_actions, axis=1)  # (B,)
+            # ───────── 6)  replace Q(s,a) by target in a tensor-safe way ─────────
+            q_target_batch = tf.tensor_scatter_nd_update(
+                q_current,                                           # base tensor
+                tf.stack([batch_ids, actions], axis=1),              # indices of (s,a)
+                true_targets                                         # new values
+            )                                                        # still (B, A)
 
-            # ---- max over a′ ----
-            q_next_max = tf.reduce_max(masked_next, axis=1)                # (B,)
+            # ───────── 7)  SGD step ─────────
+            loss = self.online_model.train_on_batch(
+                states, q_target_batch, sample_weight=sample_weights
+            )
 
-            # ---- zero-out rows with no legal moves ----
-            has_any_legal = tf.reduce_sum(next_legal_s, axis=1) > 0        # (B,) bool
-            q_next_max    = tf.where(has_any_legal, q_next_max, 0.0)
-
-            # ---- Bellman update (convert to NumPy so we can index) ----
-            q_next_max   = q_next_max.numpy()
-
-            #  ---- build targets and compute td-errors
-            r            = rewards.numpy()
-            nt           = not_terminal.numpy()
-            true_targets = r + nt * self.discount * q_next_max
-            target_idxs  = np.arange(len(targets))
-
-            td_errors    = true_targets - targets[target_idxs, actions]
-            self.replay_sampler.update_priorities(self.replay_buffer, idxs, td_errors)
-
-            targets[target_idxs, actions] = true_targets
-
-
-            loss = self.online_model.train_on_batch(states, targets, sample_weight=weights)
             self.training_log.append({
                 "training_round": self.training_round,
-                "gradient_step": gradient_step,
+                "gradient_step": int(gradient_step),
                 "loss": float(loss)
             })
 
         # update target network
         self.update_target_weights()
-
         self.training_round+= 1
 
 
