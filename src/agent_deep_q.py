@@ -429,12 +429,10 @@ class DeepQAgent(Agent):
             (states, legal_s, actions, next_states,
             next_legal_s, rewards, not_terminal) = self.minibatch_to_arrays(minibatch)
 
-            sample_weights = tf.convert_to_tensor(weights,      dtype=tf.float32)
-
             # ───────── 2)  forward pass ─────────
             q_current = self.online_model(states, training=False)              # (B, A)
-            q_next_t  = self.target_model(next_states, training=False)         # (B, A)
-            q_next_o  = self.online_model(next_states, training=False) if self.enable_double_dqn else q_next_t
+            q_next_t  = self.target_model(next_states, training=False)         # (B, A), used to evaluate Q_target
+            q_next_o  = self.online_model(next_states, training=False) if self.enable_double_dqn else q_next_t # (B, A), used to evaluate best action
 
             # ───────── 3)  mask + argmax on next-state ─────────
             masked_next = tf.where(next_legal_s > 0, q_next_o, self.LARGE_NEGATIVE_NUMBER)      # (B, A)
@@ -468,6 +466,8 @@ class DeepQAgent(Agent):
             )                                                        # still (B, A)
 
             # ───────── 7)  SGD step ─────────
+            sample_weights = tf.convert_to_tensor(weights, dtype=tf.float32)
+
             loss = self.online_model.train_on_batch(
                 states, q_target_batch, sample_weight=sample_weights
             )
