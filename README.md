@@ -13,9 +13,10 @@ Please see my blog posts explaining the code in case of interest:
 -  ![Computers learning Tic-Tac-Toe Pt. 2: Deep Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-deep-q/)
 ![deep_q](figures/readme_1.png)
 -  ![Computers learning Tic-Tac-Toe Pt. 3: Optimisation](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-optimisation/)
-![deep_q](figures/12_profiling.svg)
+<img src="figures/12_profiling.svg" height="600">
 -  ![Computers learning Tic-Tac-Toe Pt. 4: Towards Rainbow DQN](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-advanced-deep-q/)
 ![advanced_deep_q](figures/readme_4.png)
+![final_agents](ensemble_runs/26_dqn_variant_comparison.png)
 The figures were generated using the respective Jupyter notebooks.
 
 The source code can be found in the ```src``` folder. The game is implemented in ```src/tictactoe.py```. The training infrastructure is implemented in the files ```src/training_manager.py``` and ```src/game_manager.py```. The different agents are derived from the ```Agent``` class defined in ```src/agent.py```. They implement the different reinforcement learning strategies.
