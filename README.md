@@ -9,12 +9,20 @@ Implement simple tictactoe game in Python with text-based output and learn how t
 
 Please see my blog posts explaining the code in case of interest:
 -  ![Computers learning Tic-Tac-Toe Pt. 1: Tabular Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-tabular-q/)
+![tabular_q](figures/readme_0.png)
 -  ![Computers learning Tic-Tac-Toe Pt. 2: Deep Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-deep-q/)
+![deep_q](figures/readme_1.png)
 -  ![Computers learning Tic-Tac-Toe Pt. 3: Optimisation](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-optimisation/)
-
+![deep_q](figures/12_profiling.svg)
+-  ![Computers learning Tic-Tac-Toe Pt. 4: Towards Rainbow DQN](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-advanced-deep-q/)
+![advanced_deep_q](figures/readme_4.png)
 The figures were generated using the respective Jupyter notebooks.
 
 The source code can be found in the ```src``` folder. The game is implemented in ```src/tictactoe.py```. The training infrastructure is implemented in the files ```src/training_manager.py``` and ```src/game_manager.py```. The different agents are derived from the ```Agent``` class defined in ```src/agent.py```. They implement the different reinforcement learning strategies.
+
+
+## Figures
+
 
 ## Usage
 
