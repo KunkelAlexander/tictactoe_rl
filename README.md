@@ -7,14 +7,15 @@
 
 Implement simple tictactoe game in Python with text-based output and learn how to play it using the Minmax algorithm, tabular Q-learning and deep Q-learning with dense and covolutional neural networks using a dual network architecture, dueling network and (prioritised) experience replay. The neural networks are implemented using Keras and TensorFlow. I took inspiration and validated the results with Casten Friedrich's tutorial on implementing reinforcement agents for tictactoe https://github.com/fcarsten/tic-tac-toe.
 
-![final_agents](ensemble_runs/26_dqn_variant_comparison.png)
-
-
 Please see my blog posts explaining the code in case of interest:
 -  ![Computers learning Tic-Tac-Toe Pt. 1: Tabular Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-tabular-q/)
 -  ![Computers learning Tic-Tac-Toe Pt. 2: Deep Q-learning](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-deep-q/)
 -  ![Computers learning Tic-Tac-Toe Pt. 3: Optimisation](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-optimisation/)
 -  ![Computers learning Tic-Tac-Toe Pt. 4: Towards Rainbow DQN](https://kunkelalexander.github.io/blog/computers-learning-tic-tac-toe-advanced-deep-q/)
+
+
+![final_agents](ensemble_runs/26_dqn_variant_comparison.png)
+
 The figures were generated using the respective Jupyter notebooks.
 
 The source code can be found in the ```src``` folder. The game is implemented in ```src/tictactoe.py```. The training infrastructure is implemented in the files ```src/training_manager.py``` and ```src/game_manager.py```. The different agents are derived from the ```Agent``` class defined in ```src/agent.py```. They implement the different reinforcement learning strategies.
